@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstdint>
 #include <cstddef>
 #include "SceTypes.hpp"
@@ -144,9 +145,9 @@ int APS5_VABI sceNpEntitlementAccessRequestUnifiedEntitlementInfo(void) {
     return 0;
 }
 
-APS5_EXPORT("eDXKe9FndlE", sceNpEntitlementAccessPftUnknown_eDXKe9FndlE);
-int APS5_VABI sceNpEntitlementAccessPftUnknown_eDXKe9FndlE(void) {
-    NotImplemented_nid_no_patch("eDXKe9FndlE");
+int APS5_VABI sceNpEntitlementAccessGetPftFlag(int32_t* flag) {
+    if (!flag) APS5_INVALID_ARG_EX;
+    *flag = 0;
     return 0;
 }
 

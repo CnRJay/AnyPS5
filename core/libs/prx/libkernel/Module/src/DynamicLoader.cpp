@@ -87,8 +87,15 @@ void* APS5_VABI dlopen_nid_postfix(const char* path, int flags) {
             module->owned = false;
         } else {
             if (!*path) { Error("dlopen: empty module path"); return nullptr; }
-            const auto resolved = RelinkedModulePath(ResolvePath_nid_no_patch(path));
-            module->native = LoadLibraryExW(resolved.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+            auto guestName = std::filesystem::path(path).filename();
+            guestName += ".guest.prx";
+            if (HMODULE loaded = GetModuleHandleW(guestName.c_str())) {
+                module->native = loaded;
+                module->owned = false;
+            } else {
+                const auto resolved = RelinkedModulePath(ResolvePath_nid_no_patch(path));
+                module->native = LoadLibraryExW(resolved.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+            }
         }
         if (!module->native) {
             char message[128];

@@ -8,6 +8,7 @@
 #include <limits>
 #include <iterator>
 #include <map>
+#include <set>
 #include <stdexcept>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -26,6 +27,9 @@ struct Registry {
     std::mutex mutex;
     std::map<std::uint64_t, std::shared_ptr<const Range>> ranges;
     bool mainImageRegistered = false;
+#ifdef _WIN32
+    std::set<std::uintptr_t> registeredImages;
+#endif
 };
 
 Registry& registry() {
@@ -94,11 +98,8 @@ void GuestAllocationsSetPinWaiter_nid_postfix(bool (*callback)()) {
 }
 
 #ifdef _WIN32
-void GuestAllocationsRegisterMainImage_nid_postfix(void*) {
-    auto& state = registry();
-    if (state.mainImageRegistered) return;
-    const auto image = GetModuleHandleW(nullptr);
-    require(image != nullptr, "cannot locate the main guest image");
+void RegisterImage(Registry& state, const void* image) {
+    if (state.registeredImages.contains(reinterpret_cast<std::uintptr_t>(image))) return;
     auto replacement = state.ranges;
     auto cursor = reinterpret_cast<std::uintptr_t>(image);
     bool registered = false;
@@ -125,9 +126,23 @@ void GuestAllocationsRegisterMainImage_nid_postfix(void*) {
         }
         cursor += memory.RegionSize;
     }
-    require(registered, "main guest image has no committed pages");
+    require(registered, "guest image has no committed pages");
     state.ranges.swap(replacement);
+    state.registeredImages.insert(reinterpret_cast<std::uintptr_t>(image));
+}
+
+void GuestAllocationsRegisterMainImage_nid_postfix(void*) {
+    auto& state = registry();
+    if (state.mainImageRegistered) return;
+    const auto image = GetModuleHandleW(nullptr);
+    require(image != nullptr, "cannot locate the main guest image");
+    RegisterImage(state, image);
     state.mainImageRegistered = true;
+}
+
+void GuestAllocationsRegisterImage_nid_postfix(void*, const void* image) {
+    require(image != nullptr, "cannot locate the guest image");
+    RegisterImage(registry(), image);
 }
 #else
 void GuestAllocationsRegisterMainImage_nid_postfix(void*) {

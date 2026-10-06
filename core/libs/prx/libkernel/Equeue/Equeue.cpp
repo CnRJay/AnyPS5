@@ -154,7 +154,12 @@ int KernelEqueuePrivate::WaitForEvents(KernelEvent* ev, int num, uint32_t micros
         }
         if (micros == 0) {
             if (std::getenv("APS5_PROBE_EQUEUE")) { std::fprintf(stderr, "[probe] equeue '%s' wait forever:", m_name.c_str()); for (auto& e : m_events) std::fprintf(stderr, " (ident=0x%llx filter=%d trig=%d)", (unsigned long long)e.event.ident, (int)e.event.filter, (int)e.triggered); std::fputc(10, stderr); }
-            m_cond.Wait(lock);
+            uint32_t timerWait = 0;
+            if (NextTimerWaitMicros(MonotonicNs(), &timerWait)) {
+                m_cond.WaitUntil(lock, TimedWait::NowNanos() + static_cast<std::uint64_t>(timerWait) * 1000ULL);
+            } else {
+                m_cond.Wait(lock);
+            }
         } else {
             uint32_t timerWait = 0;
             const bool hasTimer = NextTimerWaitMicros(MonotonicNs(), &timerWait);

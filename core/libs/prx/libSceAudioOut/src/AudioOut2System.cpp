@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstdint>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
@@ -28,9 +29,11 @@ int APS5_VABI sceAudioOut2SetSystemDebugState(const AudioOut2SystemDebugStatePar
     return 0;
 }
 
-APS5_EXPORT("iE8trxPKnAg", sceAudioOut2Unknown_iE8trxPKnAg);
-int APS5_VABI sceAudioOut2Unknown_iE8trxPKnAg(void) {
-    NotImplemented_nid_no_patch("iE8trxPKnAg");
+int APS5_VABI sceAudioOut2UserGetSupportedAttributes(AudioOut2UserHandle user, uint32_t* first, uint32_t* second) {
+    (void)user;
+    if (!first || !second) return static_cast<int>(0x80260502);
+    *first = 0;
+    *second = 0;
     return 0;
 }
 
