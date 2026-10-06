@@ -402,6 +402,7 @@ enum class IrOpcode : std::uint16_t {
     SharedAtomicMskor32,
     SharedAtomicWrap32,
     SharedAtomicSwap64,
+    SharedAtomicCondxchg64,
     SharedAtomicIAdd64,
     SharedAtomicISub64,
     SharedAtomicRsub64,

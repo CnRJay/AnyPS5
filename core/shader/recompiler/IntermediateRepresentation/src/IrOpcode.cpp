@@ -443,6 +443,7 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("SharedAtomicMskor32", U32, U32, U32, U32, U1),
     makeMeta("SharedAtomicWrap32", U32, U32, U32, U32, U1),
     makeMeta("SharedAtomicSwap64", U64, U32, U64, U1),
+    makeMeta("SharedAtomicCondxchg64", U64, U32, U64, U1),
     makeMeta("SharedAtomicIAdd64", U64, U32, U64, U1),
     makeMeta("SharedAtomicISub64", U64, U32, U64, U1),
     makeMeta("SharedAtomicRsub64", U64, U32, U64, U1),
@@ -652,6 +653,7 @@ SharedAccess SharedAccessOf(IrOpcode opcode) {
         case IrOpcode::SharedAtomicMskor32:
         case IrOpcode::SharedAtomicWrap32:
         case IrOpcode::SharedAtomicSwap64:
+        case IrOpcode::SharedAtomicCondxchg64:
         case IrOpcode::SharedAtomicIAdd64:
         case IrOpcode::SharedAtomicISub64:
         case IrOpcode::SharedAtomicRsub64:
@@ -684,6 +686,7 @@ std::uint32_t SharedComponentCount(IrOpcode opcode) {
         case IrOpcode::LoadSharedU32x2:
         case IrOpcode::WriteSharedU32x2:
         case IrOpcode::SharedAtomicSwap64:
+        case IrOpcode::SharedAtomicCondxchg64:
         case IrOpcode::SharedAtomicIAdd64:
         case IrOpcode::SharedAtomicISub64:
         case IrOpcode::SharedAtomicRsub64:
