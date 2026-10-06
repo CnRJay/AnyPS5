@@ -44,9 +44,16 @@ BlockLayout GetBlockLayout(TextureTileMode tileMode, std::uint32_t bytesPerEleme
     const auto index = static_cast<std::size_t>(std::countr_zero(bytesPerElement));
     switch (tileMode) {
         case TextureTileMode::kLinear: throw std::runtime_error("AGC graphics: GetBlockLayout does not apply to linear tiling");
-        case TextureTileMode::kStandard256B: return {256u, 1u << kLog2BlockThin256B[index].width, 1u << kLog2BlockThin256B[index].height};
-        case TextureTileMode::kStandard4KB: return {4096u, 1u << kLog2BlockThin4KB[index].width, 1u << kLog2BlockThin4KB[index].height};
+        case TextureTileMode::kStandard256B:
+        case TextureTileMode::kD256B: return {256u, 1u << kLog2BlockThin256B[index].width, 1u << kLog2BlockThin256B[index].height};
+        case TextureTileMode::kStandard4KB:
+        case TextureTileMode::kD4KB:
+        case TextureTileMode::kS4KBX:
+        case TextureTileMode::kD4KBX: return {4096u, 1u << kLog2BlockThin4KB[index].width, 1u << kLog2BlockThin4KB[index].height};
         case TextureTileMode::kStandard64KB:
+        case TextureTileMode::kD64KB:
+        case TextureTileMode::kS64KBT:
+        case TextureTileMode::kD64KBT:
         case TextureTileMode::kZ64KBX:
         case TextureTileMode::kS64KBX:
         case TextureTileMode::kD64KBX:
@@ -92,11 +99,18 @@ bool GetMipTailLayout(TextureTileMode tileMode, const BlockLayout& block, std::u
     const auto index = static_cast<std::size_t>(std::countr_zero(bytesPerElement));
     switch (tileMode) {
         case TextureTileMode::kLinear:
-        case TextureTileMode::kStandard256B: return false;
+        case TextureTileMode::kStandard256B:
+        case TextureTileMode::kD256B: return false;
         case TextureTileMode::kStandard4KB:
+        case TextureTileMode::kD4KB:
+        case TextureTileMode::kS4KBX:
+        case TextureTileMode::kD4KBX:
             out = MakeMipTailLayout(kMipTailThin4KB[index], block.blockWidth >> 1u, block.blockHeight);
             return true;
         case TextureTileMode::kStandard64KB:
+        case TextureTileMode::kD64KB:
+        case TextureTileMode::kS64KBT:
+        case TextureTileMode::kD64KBT:
         case TextureTileMode::kZ64KBX:
         case TextureTileMode::kS64KBX:
         case TextureTileMode::kD64KBX:
@@ -246,7 +260,7 @@ std::array<std::uint32_t, 3> ThickBlockExtent(TextureTileMode tileMode, std::uin
     switch (tileMode) {
         case TextureTileMode::kStandard4KB: return {1u << thick4KB[index][0], 1u << thick4KB[index][1], 1u << thick4KB[index][2]};
         case TextureTileMode::kStandard64KB: return {1u << thick64KB[index][0], 1u << thick64KB[index][1], 1u << thick64KB[index][2]};
-        default: throw std::runtime_error("AGC graphics: 3D textures are only supported linear or in SW_4KB_S / SW_64KB_S, not in XOR swizzle " + std::to_string(XorSwizzleMode(tileMode)) + " at " + std::to_string(bytesPerElement) + " bytes per element");
+        default: throw std::runtime_error("AGC graphics: 3D textures are only supported linear or in SW_4KB_S / SW_64KB_S, not in swizzle mode " + std::to_string(EquationSwizzleMode(tileMode)) + " at " + std::to_string(bytesPerElement) + " bytes per element");
     }
 }
 

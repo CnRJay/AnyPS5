@@ -36,9 +36,16 @@ struct Push {
 std::uint32_t BlockBytesFor(TextureTileMode tileMode) {
     switch (tileMode) {
         case TextureTileMode::kLinear: return 0u;
-        case TextureTileMode::kStandard256B: return 256u;
-        case TextureTileMode::kStandard4KB: return 4096u;
+        case TextureTileMode::kStandard256B:
+        case TextureTileMode::kD256B: return 256u;
+        case TextureTileMode::kStandard4KB:
+        case TextureTileMode::kD4KB:
+        case TextureTileMode::kS4KBX:
+        case TextureTileMode::kD4KBX: return 4096u;
         case TextureTileMode::kStandard64KB:
+        case TextureTileMode::kD64KB:
+        case TextureTileMode::kS64KBT:
+        case TextureTileMode::kD64KBT:
         case TextureTileMode::kZ64KBX:
         case TextureTileMode::kS64KBX:
         case TextureTileMode::kD64KBX:
@@ -117,7 +124,7 @@ VkPipeline TextureDetiler::pipeline(TextureTileMode tileMode, std::uint32_t elem
         const auto extent = ThickBlockExtent(tileMode, elementBytes);
         values[20] = extent[0];
         values[21] = extent[1];
-    } else if (const auto mode = XorSwizzleMode(tileMode); mode != 0) {
+    } else if (const auto mode = EquationSwizzleMode(tileMode); mode != 0) {
         const auto* equation = FindTextureSwizzleEquation(mode, elementBytes);
         if (equation == nullptr) Require(false, "no swizzle equation for tile mode " + std::to_string(mode) + " at " + std::to_string(elementBytes) + " bytes per element");
         values[2] = 2u;

@@ -18,8 +18,15 @@ TextureTileMode resolveTileMode(std::uint32_t raw) {
     switch (raw) {
         case 0x00: return TextureTileMode::kLinear;
         case 0x01: return TextureTileMode::kStandard256B;
+        case 0x02: return TextureTileMode::kD256B;
         case 0x05: return TextureTileMode::kStandard4KB;
+        case 0x06: return TextureTileMode::kD4KB;
         case 0x09: return TextureTileMode::kStandard64KB;
+        case 0x0a: return TextureTileMode::kD64KB;
+        case 0x11: return TextureTileMode::kS64KBT;
+        case 0x12: return TextureTileMode::kD64KBT;
+        case 0x15: return TextureTileMode::kS4KBX;
+        case 0x16: return TextureTileMode::kD4KBX;
         case 0x18: return TextureTileMode::kZ64KBX;
         case 0x19: return TextureTileMode::kS64KBX;
         case 0x1a: return TextureTileMode::kD64KBX;
@@ -134,7 +141,7 @@ GuestTextureResource DecodeTextureResource(std::span<const std::uint32_t> words)
     // hardware never addresses them, so the view ends at the surface's last level.
     if (baseLevel <= maxMip) lastLevel = std::min(lastLevel, maxMip);
     // XOR swizzles fold a pipe/bank XOR into the low address bits; only unmodified 64 KiB bases are modeled.
-    Require(XorSwizzleMode(tileMode) == 0 || (baseAddress & 0xffffu) == 0, "guest texture descriptor combines an XOR swizzle with a pipe/bank XOR base which is not implemented");
+    Require(XorSwizzleMode(tileMode) == 0 || (baseAddress & (tileMode == TextureTileMode::kS4KBX || tileMode == TextureTileMode::kD4KBX ? 0xfffu : 0xffffu)) == 0, "guest texture descriptor combines an XOR swizzle with a pipe/bank XOR base which is not implemented");
 
     switch (dimension) {
         case TextureDimension::k1D:
