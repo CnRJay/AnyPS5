@@ -21,4 +21,11 @@ int APS5_VABI sceConvertKeycodeGetVirtualKeycode(std::uint64_t a0, std::uint64_t
           static_cast<unsigned long long>(a0), static_cast<unsigned long long>(a1), static_cast<unsigned long long>(a2), static_cast<unsigned long long>(a3));
  return kErrInvalidAddress;
 }
+
+APS5_EXPORT("S-Gni2KIJRY", sceConvertKeycodeUnknown_S_MGni2KIJRY);
+int APS5_VABI sceConvertKeycodeUnknown_S_MGni2KIJRY(void) {
+    NotImplemented_nid_no_patch("S-Gni2KIJRY");
+    return 0;
+}
+
 }

@@ -803,4 +803,16 @@ int APS5_VABI _ZN3sce4Json11Initializer10initializeEPKNS0_14InitParameter2E(void
     return 0;
 }
 
+APS5_EXPORT("FIjXN2TkuTs", sceJsonUnknown_FIjXN2TkuTs);
+int APS5_VABI sceJsonUnknown_FIjXN2TkuTs(void) {
+    NotImplemented_nid_no_patch("FIjXN2TkuTs");
+    return 0;
+}
+
+APS5_EXPORT("i-XwZjw0OOY", sceJsonUnknown_i_MXwZjw0OOY);
+int APS5_VABI sceJsonUnknown_i_MXwZjw0OOY(void) {
+    NotImplemented_nid_no_patch("i-XwZjw0OOY");
+    return 0;
+}
+
 }

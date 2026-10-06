@@ -97,4 +97,10 @@ void APS5_VABI pthread_yield_nid_postfix(void) {
     std::this_thread::yield();
 }
 
+APS5_EXPORT("0wu33hunNdE", posixUnknown_0wu33hunNdE);
+int APS5_VABI posixUnknown_0wu33hunNdE(void) {
+    NotImplemented_nid_no_patch("0wu33hunNdE");
+    return 0;
+}
+
 }

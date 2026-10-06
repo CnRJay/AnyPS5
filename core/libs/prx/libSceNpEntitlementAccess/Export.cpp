@@ -144,4 +144,10 @@ int APS5_VABI sceNpEntitlementAccessRequestUnifiedEntitlementInfo(void) {
     return 0;
 }
 
+APS5_EXPORT("eDXKe9FndlE", sceNpEntitlementAccessPftUnknown_eDXKe9FndlE);
+int APS5_VABI sceNpEntitlementAccessPftUnknown_eDXKe9FndlE(void) {
+    NotImplemented_nid_no_patch("eDXKe9FndlE");
+    return 0;
+}
+
 }

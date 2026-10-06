@@ -79,4 +79,10 @@ int APS5_VABI sceNpCommerceSetPsStoreIconLayout(int layout) {
  return 0;
 }
 
+APS5_EXPORT("IXmfUaze9So", sceNpCommerceUnknown_IXmfUaze9So);
+int APS5_VABI sceNpCommerceUnknown_IXmfUaze9So(void) {
+    NotImplemented_nid_no_patch("IXmfUaze9So");
+    return 0;
+}
+
 }

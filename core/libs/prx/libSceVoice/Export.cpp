@@ -209,4 +209,28 @@ int APS5_VABI sceVoiceSetMuteFlag() {
     return 0;
 }
 
+APS5_EXPORT("Z6QV6j7igvE", sceVoiceUnknown_Z6QV6j7igvE);
+int APS5_VABI sceVoiceUnknown_Z6QV6j7igvE(void) {
+    NotImplemented_nid_no_patch("Z6QV6j7igvE");
+    return 0;
+}
+
+APS5_EXPORT("lLkJVewQK68", sceVoiceUnknown_lLkJVewQK68);
+int APS5_VABI sceVoiceUnknown_lLkJVewQK68(void) {
+    NotImplemented_nid_no_patch("lLkJVewQK68");
+    return 0;
+}
+
+APS5_EXPORT("udAxvCePkUs", sceVoiceUnknown_udAxvCePkUs);
+int APS5_VABI sceVoiceUnknown_udAxvCePkUs(void) {
+    NotImplemented_nid_no_patch("udAxvCePkUs");
+    return 0;
+}
+
+APS5_EXPORT("xHSNCLrQq3A", sceVoiceUnknown_xHSNCLrQq3A);
+int APS5_VABI sceVoiceUnknown_xHSNCLrQq3A(void) {
+    NotImplemented_nid_no_patch("xHSNCLrQq3A");
+    return 0;
+}
+
 }

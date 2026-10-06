@@ -28,4 +28,10 @@ int APS5_VABI sceAudioOut2SetSystemDebugState(const AudioOut2SystemDebugStatePar
     return 0;
 }
 
+APS5_EXPORT("iE8trxPKnAg", sceAudioOut2Unknown_iE8trxPKnAg);
+int APS5_VABI sceAudioOut2Unknown_iE8trxPKnAg(void) {
+    NotImplemented_nid_no_patch("iE8trxPKnAg");
+    return 0;
+}
+
 }
