@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include "Equeue.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 
@@ -151,6 +153,7 @@ int KernelEqueuePrivate::WaitForEvents(KernelEvent* ev, int num, uint32_t micros
             return SCE_KERNEL_ERROR_EBADF;
         }
         if (micros == 0) {
+            if (std::getenv("APS5_PROBE_EQUEUE")) { std::fprintf(stderr, "[probe] equeue '%s' wait forever:", m_name.c_str()); for (auto& e : m_events) std::fprintf(stderr, " (ident=0x%llx filter=%d trig=%d)", (unsigned long long)e.event.ident, (int)e.event.filter, (int)e.triggered); std::fputc(10, stderr); }
             m_cond.Wait(lock);
         } else {
             uint32_t timerWait = 0;

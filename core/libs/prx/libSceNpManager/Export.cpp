@@ -191,4 +191,16 @@ int APS5_VABI sceNpUnregisterPremiumEventCallback(void) {
     return 0;
 }
 
+APS5_EXPORT("VgYczPGB5ss", sceNpUnknown_VgYczPGB5ss);
+int APS5_VABI sceNpUnknown_VgYczPGB5ss(void) {
+    NotImplemented_nid_no_patch("VgYczPGB5ss");
+    return 0;
+}
+
+APS5_EXPORT("cRILAEvn+9M", sceNpUnknown_cRILAEvn_P9M);
+int APS5_VABI sceNpUnknown_cRILAEvn_P9M(void) {
+    NotImplemented_nid_no_patch("cRILAEvn+9M");
+    return 0;
+}
+
 }

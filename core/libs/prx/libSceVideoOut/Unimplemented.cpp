@@ -17,4 +17,16 @@ int APS5_VABI sceVideoOutColorSettingsSetGamma_(VideoOutColorSettings* settings,
     return sceVideoOutColorSettingsSetGamma(settings, gamma);
 }
 
+APS5_EXPORT("5tRaBjtdTzY", sceVideoOutUnknown_5tRaBjtdTzY);
+int APS5_VABI sceVideoOutUnknown_5tRaBjtdTzY(void) {
+    NotImplemented_nid_no_patch("5tRaBjtdTzY");
+    return 0;
+}
+
+APS5_EXPORT("T4ucGB8CsnM", sceVideoOutUnknown_T4ucGB8CsnM);
+int APS5_VABI sceVideoOutUnknown_T4ucGB8CsnM(void) {
+    NotImplemented_nid_no_patch("T4ucGB8CsnM");
+    return 0;
+}
+
 }
