@@ -325,6 +325,11 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return dsAtomic(inst, IrOpcode::SharedAtomicXor32, true);
     case RdnaOpcode::DsWrxchgRtnB32:
         return dsAtomic(inst, IrOpcode::SharedAtomicSwap32, true);
+    case RdnaOpcode::DsWrxchg2RtnB32:
+    case RdnaOpcode::DsWrxchg2st64RtnB32:
+    case RdnaOpcode::DsWrxchg2RtnB64:
+    case RdnaOpcode::DsWrxchg2st64RtnB64:
+        return dsWrxchg2(inst);
 
     case RdnaOpcode::DsMinF32:
         return dsAtomic(inst, IrOpcode::SharedAtomicFMin32, false);
