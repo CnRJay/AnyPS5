@@ -228,7 +228,9 @@ void Ngs2RenderSystem(Ngs2System& system, const Ngs2RenderBufferInfo* bufferInfo
         if (voice->rack->rackId != SCE_NGS2_RACK_ID_MASTERING || !voice->hasSamples) continue;
         auto& mix = OutputMix(mixes, bufferInfo, numBufferInfo, *voice, grain);
         for (std::uint32_t channel = 0; channel < voice->channels; channel++) {
-            for (std::uint32_t i = 0; i < grain; i++) mix[i * voice->channels + channel] += voice->samples[channel * grain + i];
+            const bool lfe = channel == 3 && (voice->channels == 6 || voice->channels == 8);
+            const float level = lfe ? voice->lfeLevel : voice->fbwLevel;
+            for (std::uint32_t i = 0; i < grain; i++) mix[i * voice->channels + channel] += voice->samples[channel * grain + i] * level;
         }
     }
     for (std::uint32_t i = 0; i < numBufferInfo; i++) {

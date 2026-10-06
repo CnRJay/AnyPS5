@@ -41,6 +41,7 @@ int APS5_VABI sceKernelMapNamedFlexibleMemoryInternal(void**, std::size_t, int, 
 int APS5_VABI sceKernelAvailableFlexibleMemorySize(std::size_t*);
 int APS5_VABI sceKernelMapFlexibleMemory(void**, std::size_t, int, int);
 int APS5_VABI sceKernelMunmap(void*, std::size_t);
+int APS5_VABI sceKernelReleaseFlexibleMemory(void*, std::size_t);
 int APS5_VABI sceKernelMprotect(const void*, std::size_t, int);
 int APS5_VABI sceKernelVirtualQuery(const void*, int, VirtualQueryInfo*, std::uint64_t);
 int APS5_VABI sceKernelSetVirtualRangeName(const void*, std::uint64_t, const char*);
@@ -61,6 +62,7 @@ int APS5_VABI sceKernelAioWaitRequest(std::int32_t, std::int32_t*, std::uint32_t
 int APS5_VABI sceKernelAioDeleteRequest(std::int32_t, std::int32_t*);
 int APS5_VABI sceKernelMlock_nid_postfix(void*, std::uint64_t);
 int APS5_VABI sceKernelGetDirectMemoryType(std::int64_t, int*, std::int64_t*, std::int64_t*);
+int APS5_VABI sceKernelBatchMap2(KernelBatchMapEntry*, int, int*, int);
 }
 
 static void Require(bool condition, std::source_location location = std::source_location::current()) {
@@ -74,6 +76,23 @@ static const char* NameAt(const void* address) {
     static VirtualQueryInfo info;
     Require(sceKernelVirtualQuery(address, 0, &info, sizeof(info)) == 0);
     return info.name;
+}
+
+static void CheckReleaseFlexibleMemory() {
+    constexpr std::size_t length = 0x10000;
+    std::size_t before = 0;
+    std::size_t available = 0;
+    Require(sceKernelAvailableFlexibleMemorySize(&before) == 0);
+    void* mapped = nullptr;
+    Require(sceKernelMapFlexibleMemory(&mapped, length, 3, 0) == 0 && mapped != nullptr);
+    static_cast<volatile unsigned char*>(mapped)[length - 1] = 1;
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before - length);
+    Require(sceKernelReleaseFlexibleMemory(mapped, length) == 0);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+    void* again = mapped;
+    Require(sceKernelMapFlexibleMemory(&again, length, 3, 0x90) == 0 && again == mapped);
+    Require(static_cast<volatile unsigned char*>(again)[length - 1] == 0);
+    Require(sceKernelMunmap(again, length) == 0);
 }
 
 static void CheckNamedAndHintedMappings() {
@@ -121,6 +140,38 @@ static void CheckInternalNamedFlexibleMapping() {
     try { sceKernelMapNamedFlexibleMemoryInternal(&unknown, length, 3, 0x8000, "internal mapping"); } catch (const std::exception&) { rejected = true; }
     Require(rejected && unknown == nullptr);
     Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+}
+
+static void CheckBatchMapStopsAtInvalidEntry() {
+    constexpr std::size_t page = 0x4000;
+    constexpr int mapFlexible = 3;
+    constexpr int unmap = 1;
+    constexpr int protect = 2;
+    const auto flexible = [&] { return KernelBatchMapEntry{nullptr, 0, page, 3, 0, 0, mapFlexible}; };
+    for (const std::int32_t operation : {5, 6, -1, std::numeric_limits<std::int32_t>::max()}) {
+        KernelBatchMapEntry entries[3] = {flexible(), flexible(), flexible()};
+        entries[1].operation = operation;
+        int processed = -1;
+        Require(sceKernelBatchMap2(entries, 3, &processed, 0) == SCE_KERNEL_ERROR_EINVAL);
+        Require(processed == 1);
+        Require(entries[0].start != nullptr && entries[1].start == nullptr && entries[2].start == nullptr);
+        Require(sceKernelMunmap(entries[0].start, page) == 0);
+    }
+    KernelBatchMapEntry entries[3] = {flexible(), flexible(), flexible()};
+    entries[1].operation = protect;
+    entries[1].length = 0;
+    int processed = -1;
+    Require(sceKernelBatchMap2(entries, 3, &processed, 0) == SCE_KERNEL_ERROR_EINVAL);
+    Require(processed == 1 && entries[0].start != nullptr);
+    Require(entries[1].start == nullptr && entries[2].start == nullptr);
+    KernelBatchMapEntry unmaps[2] = {entries[0], entries[0]};
+    unmaps[0].operation = unmap;
+    unmaps[1].operation = unmap;
+    unmaps[1].length = 0;
+    processed = -1;
+    Require(sceKernelBatchMap2(unmaps, 2, &processed, 0) == SCE_KERNEL_ERROR_EINVAL && processed == 1);
+    Require(sceKernelBatchMap2(entries, 1, &processed, 0) == 0 && processed == 1);
+    Require(sceKernelMunmap(entries[0].start, page) == 0);
 }
 
 static void CheckCheckedReleaseDirectMemory() {
@@ -797,8 +848,10 @@ static void CheckDirectMemoryWriteWatch() {
 #endif
 
 int main() {
+    CheckReleaseFlexibleMemory();
     CheckNamedAndHintedMappings();
     CheckInternalNamedFlexibleMapping();
+    CheckBatchMapStopsAtInvalidEntry();
     CheckCheckedReleaseDirectMemory();
     CheckDirectMemoryFollowsPhysicalPages();
     CheckReleaseDirectMemoryClearsMappings();

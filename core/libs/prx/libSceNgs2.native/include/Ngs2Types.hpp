@@ -9,8 +9,8 @@
 static constexpr int SCE_NGS2_OK = 0;
 static constexpr int SCE_NGS2_ERROR_INVALID_OUT_ADDRESS = static_cast<int>(0x804A8010);
 static constexpr int SCE_NGS2_ERROR_INVALID_OUT_SIZE = static_cast<int>(0x804A8011);
-static constexpr int SCE_NGS2_ERROR_INVALID_SYSTEM_HANDLE = static_cast<int>(0x804A8201);
-static constexpr int SCE_NGS2_ERROR_INVALID_RACK_HANDLE = static_cast<int>(0x804A8202);
+static constexpr int SCE_NGS2_ERROR_INVALID_SYSTEM_HANDLE = static_cast<int>(0x804A0230);
+static constexpr int SCE_NGS2_ERROR_INVALID_RACK_HANDLE = static_cast<int>(0x804A0261);
 static constexpr int SCE_NGS2_ERROR_INVALID_WAVEFORM_DATA = static_cast<int>(0x804A8430);
 static constexpr int SCE_NGS2_ERROR_INVALID_WAVEFORM_FORMAT = static_cast<int>(0x804A8431);
 static constexpr int SCE_NGS2_ERROR_UNKNOWN_WAVEFORM_FORMAT = static_cast<int>(0x804A8432);
@@ -50,6 +50,7 @@ static constexpr std::uint32_t SCE_NGS2_SAMPLER_VOICE_PARAM_PITCH = 0x10000005;
 static constexpr std::uint32_t SCE_NGS2_SAMPLER_VOICE_PARAM_FILTER = 0x1000000a;
 static constexpr std::uint32_t SCE_NGS2_SUBMIXER_VOICE_PARAM_SETUP = 0x20000000;
 static constexpr std::uint32_t SCE_NGS2_MASTERING_VOICE_PARAM_SETUP = 0x30000000;
+static constexpr std::uint32_t SCE_NGS2_MASTERING_VOICE_PARAM_GAIN = 0x30000004;
 static constexpr std::uint32_t SCE_NGS2_MASTERING_VOICE_PARAM_OUTPUT = 0x30000005;
 static constexpr std::uint32_t SCE_NGS2_CUSTOM_SUBMIXER_VOICE_PARAM_SETUP = 0x40020000;
 static constexpr std::uint32_t SCE_NGS2_CUSTOM_VOICE_PARAM_USER_FX2 = 0x40001f00;
@@ -401,6 +402,13 @@ struct Ngs2MasteringVoiceSetupParam {
     std::uint32_t num_io_channels;
     std::uint32_t flags;
 };
+
+struct Ngs2MasteringVoiceGainParam {
+    Ngs2VoiceParamHeader header;
+    float fbw_level;
+    float lfe_level;
+};
+static_assert(sizeof(Ngs2MasteringVoiceGainParam) == 16);
 
 struct Ngs2MasteringVoiceOutputParam {
     Ngs2VoiceParamHeader header;

@@ -49,6 +49,8 @@ void Ngs2Voice::ResetSetup() {
     std::fill(ports.begin(), ports.end(), Ngs2Port{});
     for (auto& matrix : matrices) matrix.clear();
     filters.clear();
+    fbwLevel = 1.0f;
+    lfeLevel = 1.0f;
     channels = 0;
     sampleRate = 0;
     waveformType = 0;
@@ -255,6 +257,13 @@ static void ApplyParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param) {
         case SCE_NGS2_RACK_ID_MASTERING:
             if (param.id == SCE_NGS2_MASTERING_VOICE_PARAM_SETUP) {
                 SetupMixer(voice, ParamAs<Ngs2MasteringVoiceSetupParam>(param).num_io_channels);
+                return;
+            }
+            if (param.id == SCE_NGS2_MASTERING_VOICE_PARAM_GAIN) {
+                const auto& gain = ParamAs<Ngs2MasteringVoiceGainParam>(param);
+                if (!std::isfinite(gain.fbw_level) || !std::isfinite(gain.lfe_level)) APS5_INVALID_ARG_EX;
+                voice.fbwLevel = gain.fbw_level;
+                voice.lfeLevel = gain.lfe_level;
                 return;
             }
             if (param.id == SCE_NGS2_MASTERING_VOICE_PARAM_OUTPUT) {

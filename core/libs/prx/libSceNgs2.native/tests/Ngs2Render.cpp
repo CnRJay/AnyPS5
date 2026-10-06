@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <stdexcept>
@@ -37,8 +38,8 @@ static void TestErrorsAndInfo() {
     Require(sceNgs2RackQueryBufferSize(SCE_NGS2_RACK_ID_SAMPLER, nullptr, nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
 
     Ngs2SystemInfo info{};
-    Require(sceNgs2SystemGetInfo(0x1234, &info, sizeof(info)) == SCE_NGS2_ERROR_INVALID_SYSTEM_HANDLE);
-    Require(sceNgs2RackDestroy(0x1234, nullptr) == SCE_NGS2_ERROR_INVALID_RACK_HANDLE);
+    Require(sceNgs2SystemGetInfo(0x1234, &info, sizeof(info)) == static_cast<int>(0x804A0230u));
+    Require(sceNgs2RackDestroy(0x1234, nullptr) == static_cast<int>(0x804A0261u));
 
     const auto system = CreateSystem();
     CreateRack(system, SCE_NGS2_RACK_ID_SAMPLER);
@@ -199,6 +200,70 @@ static void TestUserData() {
     Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
 }
 
+static void TestMasteringGain() {
+    const auto system = CreateSystem();
+    const auto stereo = Mastering(system, 2);
+    const auto surround = Mastering(system, 6);
+    const auto quad = Mastering(system, 4);
+    Control(stereo, SCE_NGS2_MASTERING_VOICE_PARAM_GAIN, Ngs2MasteringVoiceGainParam{{}, 0.5f, 1.0f});
+    Control(surround, SCE_NGS2_MASTERING_VOICE_PARAM_GAIN, Ngs2MasteringVoiceGainParam{{}, 0.5f, 0.25f});
+    Control(surround, SCE_NGS2_MASTERING_VOICE_PARAM_OUTPUT, Ngs2MasteringVoiceOutputParam{{}, 1});
+    Control(quad, SCE_NGS2_MASTERING_VOICE_PARAM_GAIN, Ngs2MasteringVoiceGainParam{{}, 0.5f, 0.25f});
+    Control(quad, SCE_NGS2_MASTERING_VOICE_PARAM_OUTPUT, Ngs2MasteringVoiceOutputParam{{}, 2});
+    const std::vector<std::int16_t> pcm(Grain, 16384);
+    const auto toStereo = Sampler(system, pcm, 0);
+    const float stereoLevels[2] = {1.0f, 0.5f};
+    Control(toStereo, SCE_NGS2_VOICE_PARAM_MATRIX_LEVELS, Ngs2VoiceMatrixLevelsParam{{}, 0, 2, stereoLevels});
+    Control(toStereo, SCE_NGS2_VOICE_PARAM_PORT_MATRIX, Ngs2VoicePortMatrixParam{{}, 0, 0});
+    Patch(toStereo, stereo);
+    Event(toStereo, SCE_NGS2_VOICE_EVENT_PLAY);
+    const auto toSurround = Sampler(system, pcm, 0);
+    const float surroundLevels[6] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    Control(toSurround, SCE_NGS2_VOICE_PARAM_MATRIX_LEVELS, Ngs2VoiceMatrixLevelsParam{{}, 0, 6, surroundLevels});
+    Control(toSurround, SCE_NGS2_VOICE_PARAM_PORT_MATRIX, Ngs2VoicePortMatrixParam{{}, 0, 0});
+    Patch(toSurround, surround);
+    Event(toSurround, SCE_NGS2_VOICE_EVENT_PLAY);
+    const auto toQuad = Sampler(system, pcm, 0);
+    Control(toQuad, SCE_NGS2_VOICE_PARAM_MATRIX_LEVELS, Ngs2VoiceMatrixLevelsParam{{}, 0, 4, surroundLevels});
+    Control(toQuad, SCE_NGS2_VOICE_PARAM_PORT_MATRIX, Ngs2VoicePortMatrixParam{{}, 0, 0});
+    Patch(toQuad, quad);
+    Event(toQuad, SCE_NGS2_VOICE_EVENT_PLAY);
+    bool rejected = false;
+    try { Control(stereo, SCE_NGS2_MASTERING_VOICE_PARAM_GAIN, Ngs2MasteringVoiceGainParam{{}, NAN, 1.0f}); } catch (const std::exception&) { rejected = true; }
+    Require(rejected);
+
+    std::vector<float> outStereo(Grain * 2, -1.0f);
+    std::vector<float> outSurround(Grain * 6, -1.0f);
+    std::vector<float> outQuad(Grain * 4, -1.0f);
+    const Ngs2RenderBufferInfo info[3] = {
+        {outStereo.data(), outStereo.size() * sizeof(float), SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 2},
+        {outSurround.data(), outSurround.size() * sizeof(float), SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 6},
+        {outQuad.data(), outQuad.size() * sizeof(float), SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 4},
+    };
+    Require(sceNgs2SystemRender(system, info, 3) == SCE_NGS2_OK);
+    for (std::uint32_t i = 0; i < Grain; i++) {
+        Require(outStereo[i * 2] == 0.25f && outStereo[i * 2 + 1] == 0.125f);
+        for (std::uint32_t channel = 0; channel < 6; channel++) Require(outSurround[i * 6 + channel] == (channel == 3 ? 0.125f : 0.25f));
+        for (std::uint32_t channel = 0; channel < 4; channel++) Require(outQuad[i * 4 + channel] == 0.25f);
+    }
+    Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
+
+    const auto loudSystem = CreateSystem();
+    const auto loud = Mastering(loudSystem, 1);
+    Control(loud, SCE_NGS2_MASTERING_VOICE_PARAM_GAIN, Ngs2MasteringVoiceGainParam{{}, 2.0f, 2.0f});
+    const std::vector<std::int16_t> loudPcm(Grain * 2, 24576);
+    const auto toLoud = Sampler(loudSystem, loudPcm, 0);
+    Patch(toLoud, loud);
+    Event(toLoud, SCE_NGS2_VOICE_EVENT_PLAY);
+    auto clipped = RenderI16(loudSystem);
+    for (std::int16_t sample : clipped) Require(sample == 32767);
+    Control(loud, SCE_NGS2_MASTERING_VOICE_PARAM_SETUP, Ngs2MasteringVoiceSetupParam{{}, 1, 0});
+    Event(loud, SCE_NGS2_VOICE_EVENT_PLAY);
+    auto reset = RenderI16(loudSystem);
+    for (std::int16_t sample : reset) Require(sample == 24576);
+    Require(sceNgs2SystemDestroy(loudSystem, nullptr) == SCE_NGS2_OK);
+}
+
 static void TestLock() {
     const auto system = CreateSystem();
     Require(sceNgs2SystemLock(0x1234) == SCE_NGS2_ERROR_INVALID_SYSTEM_HANDLE);
@@ -242,6 +307,7 @@ int main() {
     TestSubmixerMatrix();
     TestSampleRate();
     TestUserData();
+    TestMasteringGain();
     TestLock();
     TestAllocator();
     return 0;
