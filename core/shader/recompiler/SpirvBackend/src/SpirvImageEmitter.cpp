@@ -904,7 +904,6 @@ void EmitEmulatedCompareSample(SpirvValueEmitContext& ctx, const ImageEmitAccess
     const auto compare = image.emulatedCompare;
     if (access.slot != 0) ctx.Fail(access.inst, "compares against a color texture through a bindless image table, which is not implemented");
     if (HasFlag(mem, RdnaImageSampleFlagDerivative) || HasFlag(mem, RdnaImageSampleFlagLod)) ctx.Fail(access.inst, "compares against a color texture with gradients or an explicit LOD, which is not implemented");
-    if (setup.layout.bias != NoImageComponent || setup.layout.offset != NoImageComponent || setup.layout.clamp != NoImageComponent) ctx.Fail(access.inst, "compares against a color texture with an LOD bias, texel offset or LOD clamp, which is not implemented");
     if (!HasFlag(mem, RdnaImageSampleFlagLevelZero) && (compare & EmulatedCompare::SingleLevel) == 0u) ctx.Fail(access.inst, "compares against a color texture across mip levels, which is not implemented");
     const bool arrayed = image.dimension == RdnaImageDimension::Dim2DArray;
     if (image.dimension != RdnaImageDimension::Dim2D && !arrayed) ctx.Fail(access.inst, "compares against a color texture that is not a 2D or 2D array view, which is not implemented");
@@ -982,9 +981,19 @@ void EmitEmulatedCompareSample(SpirvValueEmitContext& ctx, const ImageEmitAccess
     };
     const auto scaledU = Binary(state, spv::OpFMul, f32, extract(f32, setup.coord, 0u), Unary(state, spv::OpConvertSToF, f32, width));
     const auto scaledV = Binary(state, spv::OpFMul, f32, extract(f32, setup.coord, 1u), Unary(state, spv::OpConvertSToF, f32, height));
+    auto offsetX = ConstantI32(state, 0);
+    auto offsetY = ConstantI32(state, 0);
+    if (setup.layout.offset != NoImageComponent) {
+        const auto offset = PackedOffset(ctx, access, setup.layout);
+        offsetX = extract(i32, offset, 0u);
+        offsetY = extract(i32, offset, 1u);
+    }
+    const auto texelIndex = [&](std::uint32_t coordinate, std::uint32_t offset) {
+        return Binary(state, spv::OpIAdd, i32, Unary(state, spv::OpConvertFToS, i32, ext(f32, GLSLstd450Floor, {coordinate})), offset);
+    };
     std::uint32_t result;
     if ((compare & EmulatedCompare::Linear) == 0u) {
-        result = compareTexel(Unary(state, spv::OpConvertFToS, i32, ext(f32, GLSLstd450Floor, {scaledU})), Unary(state, spv::OpConvertFToS, i32, ext(f32, GLSLstd450Floor, {scaledV})));
+        result = compareTexel(texelIndex(scaledU, offsetX), texelIndex(scaledV, offsetY));
     } else {
         const auto half = f32Constant(0.5f);
         const auto centreU = Binary(state, spv::OpFSub, f32, scaledU, half);
@@ -993,8 +1002,8 @@ void EmitEmulatedCompareSample(SpirvValueEmitContext& ctx, const ImageEmitAccess
         const auto floorV = ext(f32, GLSLstd450Floor, {centreV});
         const auto weightU = Binary(state, spv::OpFSub, f32, centreU, floorU);
         const auto weightV = Binary(state, spv::OpFSub, f32, centreV, floorV);
-        const auto x0 = Unary(state, spv::OpConvertFToS, i32, floorU);
-        const auto y0 = Unary(state, spv::OpConvertFToS, i32, floorV);
+        const auto x0 = Binary(state, spv::OpIAdd, i32, Unary(state, spv::OpConvertFToS, i32, floorU), offsetX);
+        const auto y0 = Binary(state, spv::OpIAdd, i32, Unary(state, spv::OpConvertFToS, i32, floorV), offsetY);
         const auto x1 = Binary(state, spv::OpIAdd, i32, x0, ConstantI32(state, 1));
         const auto y1 = Binary(state, spv::OpIAdd, i32, y0, ConstantI32(state, 1));
         const auto top = ext(f32, GLSLstd450FMix, {compareTexel(x0, y0), compareTexel(x1, y0), weightU});
