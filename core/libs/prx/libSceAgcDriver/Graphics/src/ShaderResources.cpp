@@ -279,15 +279,12 @@ std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const s
     CaptureTrace::Log("sampled-lookup address=%llx width=%u height=%u dcc=%llx", static_cast<unsigned long long>(resource.baseAddress), resource.width, resource.height, static_cast<unsigned long long>(resource.dccAddress));
     if (auto depth = DepthSurfaceTexture(context, words, resource, components)) return depth;
     const auto depthBitsWidth = words.size() >= 4 ? ShaderRecompiler::DepthBitsTextureWidth(words[1], words[3]) : 0u;
-    if (depthBitsWidth == 32u) {
-        char text[160];
-        std::snprintf(text, sizeof(text), "AGC graphics: 32-bit integer read of the depth-layout texture 0x%llx, which is no depth surface drawn with, is not implemented", static_cast<unsigned long long>(resource.baseAddress));
-        throw std::runtime_error(text);
-    }
+    constexpr auto float32 = static_cast<std::uint32_t>(ShaderRecompiler::IrBufferFormat::Format32Float);
     constexpr auto unorm16 = static_cast<std::uint32_t>(ShaderRecompiler::IrBufferFormat::Format16UNorm);
-    if (depthBitsWidth == 16u && resource.format != unorm16) {
+    const auto depthFormat = depthBitsWidth == 32u ? float32 : depthBitsWidth == 16u ? unorm16 : resource.format;
+    if (depthFormat != resource.format) {
         auto normalized = resource;
-        normalized.format = unorm16;
+        normalized.format = depthFormat;
         return cachedTexture(context, words, normalized, components, guestBytes, depthCompare);
     }
     static const bool disabled = std::getenv("APS5_NO_TEXTURE_CACHE") != nullptr;
