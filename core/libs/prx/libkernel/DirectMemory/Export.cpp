@@ -206,6 +206,10 @@ int APS5_VABI sceKernelMunmap(uint64_t vaddr, size_t len) {
  return result;
 }
 
+int APS5_VABI sceKernelReleaseFlexibleMemory(void* addr, size_t len) {
+ return sceKernelMunmap(reinterpret_cast<uint64_t>(addr), len);
+}
+
 int APS5_VABI sceKernelReleaseDirectMemory(int64_t start, size_t len) {
  if (start < 0 || len == 0) return SCE_KERNEL_ERROR_EINVAL;
  DirectMemoryFree(start, len);

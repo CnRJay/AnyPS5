@@ -41,6 +41,7 @@ int APS5_VABI sceKernelMapNamedFlexibleMemoryInternal(void**, std::size_t, int, 
 int APS5_VABI sceKernelAvailableFlexibleMemorySize(std::size_t*);
 int APS5_VABI sceKernelMapFlexibleMemory(void**, std::size_t, int, int);
 int APS5_VABI sceKernelMunmap(void*, std::size_t);
+int APS5_VABI sceKernelReleaseFlexibleMemory(void*, std::size_t);
 int APS5_VABI sceKernelMprotect(const void*, std::size_t, int);
 int APS5_VABI sceKernelVirtualQuery(const void*, int, VirtualQueryInfo*, std::uint64_t);
 int APS5_VABI sceKernelSetVirtualRangeName(const void*, std::uint64_t, const char*);
@@ -121,6 +122,23 @@ static void CheckInternalNamedFlexibleMapping() {
     try { sceKernelMapNamedFlexibleMemoryInternal(&unknown, length, 3, 0x8000, "internal mapping"); } catch (const std::exception&) { rejected = true; }
     Require(rejected && unknown == nullptr);
     Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+}
+
+static void CheckReleaseFlexibleMemory() {
+    constexpr std::size_t length = 0x10000;
+    std::size_t before = 0;
+    std::size_t available = 0;
+    Require(sceKernelAvailableFlexibleMemorySize(&before) == 0);
+    void* mapped = nullptr;
+    Require(sceKernelMapFlexibleMemory(&mapped, length, 3, 0) == 0 && mapped != nullptr);
+    static_cast<volatile unsigned char*>(mapped)[length - 1] = 1;
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before - length);
+    Require(sceKernelReleaseFlexibleMemory(mapped, length) == 0);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+    void* again = mapped;
+    Require(sceKernelMapFlexibleMemory(&again, length, 3, 0x90) == 0 && again == mapped);
+    Require(static_cast<volatile unsigned char*>(again)[length - 1] == 0);
+    Require(sceKernelMunmap(again, length) == 0);
 }
 
 static void CheckCheckedReleaseDirectMemory() {
@@ -799,6 +817,7 @@ static void CheckDirectMemoryWriteWatch() {
 int main() {
     CheckNamedAndHintedMappings();
     CheckInternalNamedFlexibleMapping();
+    CheckReleaseFlexibleMemory();
     CheckCheckedReleaseDirectMemory();
     CheckDirectMemoryFollowsPhysicalPages();
     CheckReleaseDirectMemoryClearsMappings();
