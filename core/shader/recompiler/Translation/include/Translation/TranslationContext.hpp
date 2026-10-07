@@ -240,7 +240,7 @@ private:
     IrU32 extractBits32(IrU32 source, IrU32 offset, IrU32 rawCount, bool sign);
     bool sBfmB64(const RdnaInstruction& inst);
     bool sBfeU32(const RdnaInstruction& inst, bool sign);
-    bool sBfeU64(const RdnaInstruction& inst);
+    bool sBfeU64(const RdnaInstruction& inst, bool sign);
     bool vBfeU32(const RdnaInstruction& inst, bool sign);
     bool vBfiB32(const RdnaInstruction& inst);
     bool sBitcmpB32(const RdnaInstruction& inst, bool expected);
@@ -256,6 +256,7 @@ private:
     bool integerDot(const RdnaInstruction& inst, std::uint32_t elementBits, bool sign, bool accumulator);
     bool vCndmaskB32(const RdnaInstruction& inst);
     bool packB16(const RdnaInstruction& inst, bool high0, bool high1);
+    bool vCvtPk16I32(const RdnaInstruction& inst, bool sign);
     void sSubvectorLoop(const RdnaInstruction& inst, bool begin);
     void sSaveexec(const RdnaInstruction& inst, IrOpcode operation, bool negateExec, bool negateSource, bool write64, bool negateResult = false, bool writeResult = false);
     void addU32(const RdnaInstruction& inst, bool vector, bool useCarryIn);
