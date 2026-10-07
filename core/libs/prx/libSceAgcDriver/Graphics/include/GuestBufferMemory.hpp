@@ -27,6 +27,10 @@ struct HostImport {
     VkDeviceMemory memory;
     VkDeviceAddress address;
     void* alias = nullptr;
+    // The registered range the import was made of: a range mapped again at the same base and size is
+    // a new object, and the import (pinned pages or alias view) no longer shows its memory. Weak: a
+    // held range is a lease, which the remap would wait for.
+    std::weak_ptr<const GuestAllocations::Range> range {};
     // Identity for the life of this import (see HostImportSerial); 0 until first asked for.
     std::uint64_t serial = 0;
     bool unwatched = false;

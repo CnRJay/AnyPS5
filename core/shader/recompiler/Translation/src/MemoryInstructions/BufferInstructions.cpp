@@ -168,6 +168,12 @@ bool TranslationContext::bufferStore(const RdnaInstruction& inst) {
         case 1u:
             opcode = IrOpcode::StoreBufferU32;
             value = &data.Value();
+            if (const DebugProbe probe = DebugProbeConfig(); probe.enabled && !probe.bySample) {
+                RdnaOperand probeReg{};
+                probeReg.kind = RdnaOperandKind::VectorRegister;
+                probeReg.reg = 255u;
+                value = &ir.ShiftRightLogical(readRawU32(probeReg).Value(), ir.Constant(probe.shift));
+            }
             break;
         case 2u: {
             opcode = IrOpcode::StoreBufferU32x2;
