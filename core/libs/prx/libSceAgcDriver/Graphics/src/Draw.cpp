@@ -134,7 +134,11 @@ bool materializeCmaskClear(const Context& context, const ColorTarget& color, Sto
     const auto state = CurrentDccKeys(color.cmaskAddress, metadataBytes);
     if (state == DccKeys::Uncompressed) return false;
     Require(color.dccAddress == 0, std::string("CMASK of a DCC color target that is not all expanded is not modeled (") + DccKeysName(state) + ")");
-    if (state != DccKeys::Clear0000) return false;
+    if (state != DccKeys::Clear0000) {
+        static std::atomic<bool> reported{false};
+        if (!reported.exchange(true)) std::fprintf(stderr, "[gpu] CMASK of color target 0x%llx is %s, not all fast-cleared or all expanded: left as it is (fast-cleared tiles keep their stale texels)\n", static_cast<unsigned long long>(color.address), DccKeysName(state));
+        return false;
+    }
     const auto texel = clearTexel(color, DccKeys::ClearRegister);
     const char* refusal = nullptr;
     if (resident == nullptr || !clearToTexel(*resident, texel, color.elementBytes, refusal)) {
