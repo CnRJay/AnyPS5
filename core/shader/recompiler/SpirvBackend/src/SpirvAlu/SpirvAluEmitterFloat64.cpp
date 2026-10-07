@@ -197,6 +197,31 @@ std::uint32_t AddRoundToOdd(SpirvEmitterState& state, std::uint32_t lhs, std::ui
     return ToF64(state, Join(state, SelectBits(state, inexact, odd, rounded)));
 }
 
+struct F64Normalized {
+    F64Bits bits;
+    std::uint32_t exponent = 0;
+};
+
+F64Normalized Normalize(SpirvEmitterState& state, const F64Class& cls) {
+    const auto field = ExponentField(state, cls.bits.high);
+    const auto mantissaHigh = Binary(state, spv::OpBitwiseAnd, TypeU32(state), cls.bits.high, ConstantU32(state, 0x000fffffu));
+    const auto highMsb = Binary(state, spv::OpIAdd, TypeI32(state), Glsl(state, TypeI32(state), GLSLstd450FindUMsb, mantissaHigh), ConstantI32(state, 32));
+    const auto lowMsb = Glsl(state, TypeI32(state), GLSLstd450FindUMsb, cls.bits.low);
+    const auto msb = Select(state, TypeI32(state), Binary(state, spv::OpINotEqual, TypeBool(state), mantissaHigh, ConstantU32(state, 0u)), highMsb, lowMsb);
+    const auto shift = Unary(state, spv::OpBitcast, TypeU32(state), Glsl(state, TypeI32(state), GLSLstd450SClamp, Binary(state, spv::OpISub, TypeI32(state), ConstantI32(state, 52), msb), ConstantI32(state, 1), ConstantI32(state, 52)));
+    const auto nearShift = Glsl(state, TypeU32(state), GLSLstd450UMin, shift, ConstantU32(state, 31u));
+    const auto farShift = Binary(state, spv::OpISub, TypeU32(state), Glsl(state, TypeU32(state), GLSLstd450UMax, shift, ConstantU32(state, 32u)), ConstantU32(state, 32u));
+    const auto carried = Binary(state, spv::OpShiftRightLogical, TypeU32(state), cls.bits.low, Binary(state, spv::OpISub, TypeU32(state), ConstantU32(state, 32u), nearShift));
+    const F64Bits nearBits{Binary(state, spv::OpShiftLeftLogical, TypeU32(state), cls.bits.low, nearShift), Binary(state, spv::OpBitwiseOr, TypeU32(state), Binary(state, spv::OpShiftLeftLogical, TypeU32(state), mantissaHigh, nearShift), carried)};
+    const F64Bits farBits{ConstantU32(state, 0u), Binary(state, spv::OpShiftLeftLogical, TypeU32(state), cls.bits.low, farShift)};
+    const auto shifted = SelectBits(state, Binary(state, spv::OpULessThan, TypeBool(state), shift, ConstantU32(state, 32u)), nearBits, farBits);
+    const auto sign = Binary(state, spv::OpBitwiseAnd, TypeU32(state), cls.bits.high, ConstantU32(state, 0x80000000u));
+    const F64Bits normalized{shifted.low, Binary(state, spv::OpBitwiseOr, TypeU32(state), Binary(state, spv::OpBitwiseAnd, TypeU32(state), shifted.high, ConstantU32(state, 0x000fffffu)), sign)};
+    const auto subnormal = Binary(state, spv::OpIEqual, TypeBool(state), field, ConstantU32(state, 0u));
+    const auto exponent = Select(state, TypeI32(state), subnormal, Binary(state, spv::OpISub, TypeI32(state), ConstantI32(state, 1), Unary(state, spv::OpBitcast, TypeI32(state), shift)), Unary(state, spv::OpBitcast, TypeI32(state), field));
+    return {SelectBits(state, subnormal, normalized, cls.bits), exponent};
+}
+
 std::uint32_t FusedMultiplyAdd(SpirvEmitterState& state, std::uint32_t arg0, std::uint32_t arg1, std::uint32_t arg2, std::uint32_t scale) {
     const auto a = Classify(state, arg0);
     const auto b = Classify(state, arg1);
@@ -204,6 +229,9 @@ std::uint32_t FusedMultiplyAdd(SpirvEmitterState& state, std::uint32_t arg0, std
     const auto exponentA = ExponentField(state, a.bits.high);
     const auto exponentB = ExponentField(state, b.bits.high);
     const auto exponentC = ExponentField(state, c.bits.high);
+    const auto normalA = Normalize(state, a);
+    const auto normalB = Normalize(state, b);
+    const auto normalC = Normalize(state, c);
     const auto isField = [&](std::uint32_t field, std::uint32_t value) {
         return Binary(state, spv::OpIEqual, TypeBool(state), field, ConstantU32(state, value));
     };
@@ -213,33 +241,48 @@ std::uint32_t FusedMultiplyAdd(SpirvEmitterState& state, std::uint32_t arg0, std
         return result;
     };
 
-    const auto signedInt = [&](std::uint32_t value) { return Unary(state, spv::OpBitcast, TypeI32(state), value); };
-    const auto product = Binary(state, spv::OpISub, TypeI32(state), signedInt(Binary(state, spv::OpIAdd, TypeU32(state), exponentA, exponentB)), ConstantI32(state, 2046));
-    const auto distance = Binary(state, spv::OpISub, TypeI32(state), Binary(state, spv::OpISub, TypeI32(state), signedInt(exponentC), ConstantI32(state, 1023)), product);
+    const auto product = Binary(state, spv::OpISub, TypeI32(state), Binary(state, spv::OpIAdd, TypeI32(state), normalA.exponent, normalB.exponent), ConstantI32(state, 2046));
+    const auto distance = Binary(state, spv::OpISub, TypeI32(state), Binary(state, spv::OpISub, TypeI32(state), normalC.exponent, ConstantI32(state, 1023)), product);
     const auto far = Binary(state, spv::OpLogicalAnd, TypeBool(state), Binary(state, spv::OpSGreaterThanEqual, TypeBool(state), distance, ConstantI32(state, 60)), Unary(state, spv::OpLogicalNot, TypeBool(state), c.zero));
     const auto tiny = Binary(state, spv::OpSLessThan, TypeBool(state), distance, ConstantI32(state, -150));
     const auto clamped = Glsl(state, TypeI32(state), GLSLstd450SClamp, distance, ConstantI32(state, -150), ConstantI32(state, 60));
     const auto sign = Binary(state, spv::OpBitwiseAnd, TypeU32(state), c.bits.high, ConstantU32(state, 0x80000000u));
     const F64Bits tinyBits{ConstantU32(state, 0u), Binary(state, spv::OpBitwiseOr, TypeU32(state), sign, ConstantU32(state, (1023u - 150u) << 20u))};
     const auto rebiased = Unary(state, spv::OpBitcast, TypeU32(state), Binary(state, spv::OpIAdd, TypeI32(state), clamped, ConstantI32(state, 1023)));
-    const auto scaledC = SelectBits(state, c.zero, c.bits, SelectBits(state, tiny, tinyBits, WithExponent(state, c.bits, rebiased)));
+    const auto scaledC = SelectBits(state, c.zero, c.bits, SelectBits(state, tiny, tinyBits, WithExponent(state, normalC.bits, rebiased)));
 
-    const auto exact = TwoProduct(state, ToF64(state, Join(state, WithExponent(state, a.bits, ConstantU32(state, 1023u)))), ToF64(state, Join(state, WithExponent(state, b.bits, ConstantU32(state, 1023u)))));
+    const auto exact = TwoProduct(state, ToF64(state, Join(state, WithExponent(state, normalA.bits, ConstantU32(state, 1023u)))), ToF64(state, Join(state, WithExponent(state, normalB.bits, ConstantU32(state, 1023u)))));
     const auto sum = TwoSum(state, ToF64(state, Join(state, scaledC)), exact.high);
-    const auto scaled = Exact(state, spv::OpFAdd, sum.high, AddRoundToOdd(state, sum.low, exact.low));
+    const auto residual = AddRoundToOdd(state, sum.low, exact.low);
+    const auto scaled = Exact(state, spv::OpFAdd, sum.high, residual);
     const auto power = PowerOfTwo(state, scale);
     const auto total = Glsl(state, TypeI32(state), GLSLstd450SClamp, Binary(state, spv::OpIAdd, TypeI32(state), product, scale), ConstantI32(state, -2044), ConstantI32(state, 2046));
     const auto half = Binary(state, spv::OpSDiv, TypeI32(state), total, ConstantI32(state, 2));
-    const auto rescaled = Exact(state, spv::OpFMul, Exact(state, spv::OpFMul, scaled, PowerOfTwo(state, half)), PowerOfTwo(state, Binary(state, spv::OpISub, TypeI32(state), total, half)));
+    const auto rescale = [&](std::uint32_t value) {
+        return Exact(state, spv::OpFMul, Exact(state, spv::OpFMul, value, PowerOfTwo(state, half)), PowerOfTwo(state, Binary(state, spv::OpISub, TypeI32(state), total, half)));
+    };
+    const auto rescaled = Split(state, FromF64(state, rescale(scaled)));
+    const auto gridExponent = Glsl(state, TypeI32(state), GLSLstd450SClamp, Binary(state, spv::OpISub, TypeI32(state), ConstantI32(state, -1022), total), ConstantI32(state, -1022), ConstantI32(state, 1023));
+    const auto gridSign = Binary(state, spv::OpBitwiseAnd, TypeU32(state), Split(state, FromF64(state, scaled)).high, ConstantU32(state, 0x80000000u));
+    const auto gridPower = Split(state, FromF64(state, PowerOfTwo(state, gridExponent)));
+    const auto grid = ToF64(state, Join(state, {gridPower.low, Binary(state, spv::OpBitwiseOr, TypeU32(state), gridPower.high, gridSign)}));
+    const auto tail = TwoSum(state, sum.low, exact.low);
+    const auto head = TwoSum(state, sum.high, tail.high);
+    const auto aligned = TwoSum(state, grid, head.high);
+    const auto rounded = Exact(state, spv::OpFAdd, aligned.high, AddRoundToOdd(state, aligned.low, AddRoundToOdd(state, head.low, tail.low)));
+    const auto gridValue = Split(state, FromF64(state, rescale(Exact(state, spv::OpFSub, rounded, grid))));
+    const F64Bits subnormal{gridValue.low, Binary(state, spv::OpBitwiseOr, TypeU32(state), gridValue.high, gridSign)};
+    const auto rescaledMagnitude = Binary(state, spv::OpBitwiseAnd, TypeU32(state), rescaled.high, ConstantU32(state, 0x7fffffffu));
+    const auto minNormal = Binary(state, spv::OpLogicalAnd, TypeBool(state), Binary(state, spv::OpIEqual, TypeBool(state), rescaledMagnitude, ConstantU32(state, 0x00100000u)), Binary(state, spv::OpIEqual, TypeBool(state), rescaled.low, ConstantU32(state, 0u)));
+    const auto belowNormal = Binary(state, spv::OpLogicalOr, TypeBool(state), Binary(state, spv::OpULessThan, TypeBool(state), rescaledMagnitude, ConstantU32(state, 0x00100000u)), minNormal);
     const auto farValue = Split(state, FromF64(state, Exact(state, spv::OpFMul, ToF64(state, arg2), power)));
-    const auto finite = SelectBits(state, far, farValue, Split(state, FromF64(state, rescaled)));
+    const auto finite = SelectBits(state, far, farValue, SelectBits(state, belowNormal, subnormal, rescaled));
 
     auto fallback = Split(state, FromF64(state, Exact(state, spv::OpFMul, Exact(state, spv::OpFAdd, Exact(state, spv::OpFMul, ToF64(state, arg0), ToF64(state, arg1)), ToF64(state, arg2)), power)));
     const auto finiteProduct = Binary(state, spv::OpLogicalAnd, TypeBool(state), Unary(state, spv::OpLogicalNot, TypeBool(state), isField(exponentA, 0x7ffu)), Unary(state, spv::OpLogicalNot, TypeBool(state), isField(exponentB, 0x7ffu)));
     fallback = SelectBits(state, Binary(state, spv::OpLogicalAnd, TypeBool(state), c.infinite, finiteProduct), c.bits, fallback);
     fallback = SelectBits(state, Classify(state, Join(state, fallback)).nan, {ConstantU32(state, 0u), ConstantU32(state, 0xfff80000u)}, fallback);
-    const auto subnormalC = Binary(state, spv::OpLogicalAnd, TypeBool(state), isField(exponentC, 0u), Unary(state, spv::OpLogicalNot, TypeBool(state), c.zero));
-    const auto special = any({isField(exponentA, 0u), isField(exponentB, 0u), isField(exponentA, 0x7ffu), isField(exponentB, 0x7ffu), isField(exponentC, 0x7ffu), subnormalC});
+    const auto special = any({a.zero, b.zero, isField(exponentA, 0x7ffu), isField(exponentB, 0x7ffu), isField(exponentC, 0x7ffu)});
 
     auto result = SelectBits(state, special, fallback, finite);
     result = SelectBits(state, c.nan, Quiet(state, c.bits), result);
