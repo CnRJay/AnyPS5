@@ -2,7 +2,14 @@
 #include "prx/libSceAgcDriver/Graphics/include/GuestTextureResource.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
+#include "prx/libc/include/GuestAllocations.hpp"
 #include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <cstring>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <stdexcept>
 #include <string>
 
@@ -198,6 +205,42 @@ bool MatchesGuestDimension(ShaderRecompiler::DescriptorImageShape shape, Texture
         case ShaderRecompiler::DescriptorImageShape::Image3D: return dimension == TextureDimension::k3D;
     }
     throw std::runtime_error("AGC graphics: MatchesGuestDimension encountered an unknown descriptor image shape");
+}
+
+std::span<const std::uint32_t> PlaceholderForNullTexture(std::span<const std::uint32_t> words, std::optional<ShaderRecompiler::DescriptorImageShape> shape) {
+    if (words.size() != 8 || ((static_cast<std::uint64_t>(words[0]) | (static_cast<std::uint64_t>(words[1]) << 32u)) & 0xffffffffffull) != 0) return words;
+    static constexpr std::size_t pageBytes = 65536;
+    static const std::uint64_t page = [] {
+#ifdef _WIN32
+        void* block = VirtualAlloc(nullptr, pageBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+        void* block = std::aligned_alloc(pageBytes, pageBytes);
+#endif
+        Require(block != nullptr, "cannot allocate the null texture placeholder");
+        std::memset(block, 0, pageBytes);
+        GuestAllocations::Mutation mutation;
+        mutation.Add(block, pageBytes, true, false);
+        return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(block));
+    }();
+    std::uint32_t type = 9;
+    if (shape.has_value()) {
+        switch (*shape) {
+            case ShaderRecompiler::DescriptorImageShape::Image1D: type = 8; break;
+            case ShaderRecompiler::DescriptorImageShape::Image2D: type = 9; break;
+            case ShaderRecompiler::DescriptorImageShape::Image2DArray: type = 13; break;
+            case ShaderRecompiler::DescriptorImageShape::ImageCube: type = 11; break;
+            case ShaderRecompiler::DescriptorImageShape::Image3D: type = 10; break;
+        }
+    }
+    static std::array<std::array<std::uint32_t, 8>, 16> placeholders = [] {
+        std::array<std::array<std::uint32_t, 8>, 16> result {};
+        for (std::uint32_t index = 0; index < result.size(); index++) {
+            const auto base40 = page >> 8u;
+            result[index] = {static_cast<std::uint32_t>(base40), static_cast<std::uint32_t>((base40 >> 32u) & 0xffu) | (56u << 20u), 0u, 0xfacu | (index << 28u), 0u, 0u, 0u, 0u};
+        }
+        return result;
+    }();
+    return placeholders[type];
 }
 
 }

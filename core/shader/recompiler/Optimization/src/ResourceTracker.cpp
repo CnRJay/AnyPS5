@@ -595,6 +595,161 @@ private:
         return phi;
     }
 
+    struct WebState {
+        std::vector<IrValue*> dwords;
+        IrValue* selector;
+    };
+
+    IrValue* WebSelector(std::vector<IrValue*> tuple, std::vector<std::vector<IrValue*>>& arms, std::vector<WebState>& states, std::vector<std::pair<IrBlock*, IrValue*>>& created, IrValue& position) {
+        static constexpr std::size_t maxStates = 4096u;
+        static constexpr std::size_t maxArms = 64u;
+        for (IrValue*& value : tuple) {
+            value = value->Resolve();
+            while (value->IsPhi()) {
+                IrValue* invariant = ResolveInvariantPhi(m_program.Resources(), value);
+                if (invariant == nullptr || invariant == value) {
+                    break;
+                }
+                value = invariant->Resolve();
+            }
+        }
+        for (const WebState& state : states) {
+            if (state.dwords == tuple) {
+                return state.selector;
+            }
+        }
+        IrBlock* block = nullptr;
+        for (IrValue* value : tuple) {
+            if (value->IsPhi()) {
+                block = value->Parent();
+                break;
+            }
+        }
+        if (block == nullptr) {
+            for (IrValue* value : tuple) {
+                if (Rematerialize(value, position, false, phiSearchDepth) == nullptr) {
+                    return &m_builder.Constant(0u);
+                }
+            }
+            std::uint32_t arm = 0;
+            for (; arm < arms.size(); arm++) {
+                bool same = true;
+                for (std::size_t dword = 0; same && dword < tuple.size(); dword++) {
+                    same = EquivalentValue(m_program.Resources(), tuple[dword], arms[arm][dword]);
+                }
+                if (same) {
+                    break;
+                }
+            }
+            if (arm == arms.size()) {
+                if (arms.size() == maxArms) {
+                    return nullptr;
+                }
+                arms.push_back(tuple);
+            }
+            return &m_builder.Constant(arm);
+        }
+        const auto& predecessors = block->Predecessors();
+        if (predecessors.size() < 2u || states.size() == maxStates) {
+            return nullptr;
+        }
+        for (const IrValue* value : tuple) {
+            if (value->IsPhi() && (value->Parent() != block || value->PhiBlockCount() != predecessors.size())) {
+                return nullptr;
+            }
+        }
+        IrValue& selector = m_program.CreateValue(IrOpcode::Phi, IrType::U32);
+        states.push_back({tuple, &selector});
+        created.emplace_back(block, &selector);
+        for (IrBlock* predecessor : predecessors) {
+            std::vector<IrValue*> incoming;
+            incoming.reserve(tuple.size());
+            for (IrValue* value : tuple) {
+                IrValue* edge = value->IsPhi() ? PhiIncoming(*value, predecessor) : value;
+                if (edge == nullptr) {
+                    return nullptr;
+                }
+                incoming.push_back(edge);
+            }
+            IrValue* edgeSelector = WebSelector(std::move(incoming), arms, states, created, position);
+            if (edgeSelector == nullptr) {
+                return nullptr;
+            }
+            selector.AddPhiOperand(predecessor, edgeSelector);
+        }
+        return &selector;
+    }
+
+    void SplitDescriptorWeb(IrValue& inst, const std::array<IrValue*, 2>& handles, const std::array<bool, 2>& split, std::uint32_t handleCount) {
+        if (inst.Parent() == nullptr) {
+            return;
+        }
+        std::vector<IrValue*> tuple;
+        for (std::uint32_t slot = 0; slot < handleCount; slot++) {
+            for (std::size_t dword = 0; split[slot] && dword < handles[slot]->ArgumentCount(); dword++) {
+                tuple.push_back(handles[slot]->Argument(dword));
+            }
+        }
+        std::vector<std::vector<IrValue*>> arms;
+        std::vector<WebState> states;
+        std::vector<std::pair<IrBlock*, IrValue*>> created;
+        IrValue* selector = WebSelector(tuple, arms, states, created, inst);
+        if (selector == nullptr || arms.empty()) {
+            return;
+        }
+        for (const auto& [block, phi] : created) {
+            if (arms.size() > 1u) {
+                block->InsertInstructionBefore(nullptr, phi);
+            }
+        }
+
+        std::vector<IrValue*> copies;
+        const auto flags = inst.Flags<MemoryFlags>();
+        const auto memory = m_program.Resources().memoryInfo.at(flags.index);
+        for (std::uint32_t arm = 0; arm < arms.size(); arm++) {
+            std::vector<IrValue*> arguments(inst.Arguments().begin(), inst.Arguments().end());
+            std::size_t next = 0;
+            for (std::uint32_t slot = 0; slot < handleCount; slot++) {
+                if (!split[slot]) {
+                    continue;
+                }
+                std::vector<IrValue*> dwords;
+                for (std::size_t dword = 0; dword < handles[slot]->ArgumentCount(); dword++) {
+                    dwords.push_back(Rematerialize(arms[arm][next++], inst, true, phiSearchDepth));
+                }
+                arguments[slot] = EmitCopy(*handles[slot], dwords, inst);
+            }
+            auto copyFlags = flags;
+            if (arm != 0u) {
+                copyFlags.index = static_cast<std::uint32_t>(m_program.Resources().memoryInfo.size());
+                m_program.Resources().memoryInfo.push_back(memory);
+            }
+            std::uint64_t rawFlags = 0;
+            std::memcpy(&rawFlags, &copyFlags, sizeof(copyFlags));
+            copies.push_back(EmitBefore(inst, inst.Opcode(), inst.Type(), arguments, rawFlags));
+        }
+
+        std::array<IrValue*, 4> components {};
+        for (std::uint32_t component = 0; component < components.size(); component++) {
+            const auto extract = [&](IrValue* vector) {
+                const std::array<IrValue*, 2> arguments {vector, &m_builder.Constant(component)};
+                return EmitBefore(inst, IrOpcode::CompositeExtractU32x4, IrType::U32, arguments);
+            };
+            IrValue* selected = extract(copies.back());
+            for (std::uint32_t arm = static_cast<std::uint32_t>(copies.size()) - 1u; arm-- > 0u;) {
+                const std::array<IrValue*, 2> compare {selector, &m_builder.Constant(arm)};
+                IrValue* hit = EmitBefore(inst, IrOpcode::IEqual32, IrType::Bool, compare);
+                const std::array<IrValue*, 3> arguments {hit, extract(copies[arm]), selected};
+                selected = EmitBefore(inst, IrOpcode::SelectU32, IrType::U32, arguments);
+            }
+            components[component] = selected;
+        }
+        IrValue* result = EmitBefore(inst, IrOpcode::CompositeConstructU32x4, IrType::U32x4, components);
+        inst.ReplaceAllUsesWith(result);
+        inst.Invalidate();
+        inst.Parent()->RemoveInstruction(&inst);
+    }
+
     void SplitDescriptorPhi(IrValue& inst) {
         const auto info = ImageOpcodeInfoOf(inst.Opcode());
         const std::uint32_t handleCount = info.needsSampler ? 2u : 1u;
@@ -627,18 +782,22 @@ private:
         }
         IrBlock* block = phis.front()->Parent();
         if (block == nullptr || inst.Parent() == nullptr) {
+            SplitDescriptorWeb(inst, handles, split, handleCount);
             return;
         }
         const auto& predecessors = block->Predecessors();
         if (predecessors.size() < 2u) {
+            SplitDescriptorWeb(inst, handles, split, handleCount);
             return;
         }
         for (const IrValue* phi : phis) {
             if (phi->Parent() != block || phi->PhiBlockCount() != predecessors.size()) {
+                SplitDescriptorWeb(inst, handles, split, handleCount);
                 return;
             }
             for (const IrBlock* predecessor : predecessors) {
                 if (PhiIncoming(*phi, predecessor) == nullptr) {
+                    SplitDescriptorWeb(inst, handles, split, handleCount);
                     return;
                 }
             }
@@ -665,6 +824,7 @@ private:
             for (std::uint32_t slot = 0; slot < handleCount; slot++) {
                 for (std::size_t dword = 0; split[slot] && dword < handles[slot]->ArgumentCount(); dword++) {
                     if (SubstituteEdge(handles[slot]->Argument(dword), arm, inst, false, phiSearchDepth) == nullptr) {
+                        SplitDescriptorWeb(inst, handles, split, handleCount);
                         return;
                     }
                 }

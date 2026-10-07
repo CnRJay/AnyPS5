@@ -3,6 +3,7 @@
 
 #include "Recompiler.hpp"
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace AgcDriver::Graphics {
@@ -68,6 +69,7 @@ float EffectiveMinLod(const GuestTextureResource& resource);
 
 GuestTextureResource DecodeTextureResource(std::span<const std::uint32_t> words);
 bool MatchesGuestDimension(ShaderRecompiler::DescriptorImageShape shape, TextureDimension dimension);
+std::span<const std::uint32_t> PlaceholderForNullTexture(std::span<const std::uint32_t> words, std::optional<ShaderRecompiler::DescriptorImageShape> shape);
 
 }
 
