@@ -196,4 +196,10 @@ int APS5_VABI sceNpGetUserIdByAccountId() {
     return 0;
 }
 
+APS5_EXPORT("cRILAEvn+9M", sceNpUnknown_cRILAEvn_P9M);
+int APS5_VABI sceNpUnknown_cRILAEvn_P9M(void) {
+    NotImplemented_nid_no_patch("cRILAEvn+9M");
+    return 0;
+}
+
 }
