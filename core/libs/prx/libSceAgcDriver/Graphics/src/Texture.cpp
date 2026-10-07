@@ -3490,10 +3490,13 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
     }
     // Debug aid: APS5_DUMP_STORAGE=<hex address> saves that storage image's first mip after each of
     // its first 8 write-backs as storage_<address>_<n>.raw (u32 width, height, VkFormat, then rows).
-    static const std::uint64_t dumpAddress = [] { const char* text = std::getenv("APS5_DUMP_STORAGE"); return text ? std::strtoull(text, nullptr, 16) : 0ull; }();
-    static int dumps = 0;
+    static const std::string dumpAddresses = [] { const char* text = std::getenv("APS5_DUMP_STORAGE"); return text ? std::string(text) : std::string(); }();
+    static std::map<std::uint64_t, int> dumpCounts;
+    char dumpKey[24];
+    std::snprintf(dumpKey, sizeof(dumpKey), "%llx", static_cast<unsigned long long>(descriptor.baseAddress));
+    int& dumps = dumpCounts[descriptor.baseAddress];
     std::unique_ptr<Buffer> dump;
-    if (dumpAddress != 0 && descriptor.baseAddress == dumpAddress && dumps < 8) {
+    if (!dumpAddresses.empty() && dumpAddresses.find(dumpKey) != std::string::npos && dumps < 8) {
         dump = std::make_unique<Buffer>(context, static_cast<std::size_t>(mips[0].linearSize), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
         RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
         CopyBuffer(context, commands, linear.Handle(), mips[0].linearOffset, dump->Handle(), 0, mips[0].linearSize);

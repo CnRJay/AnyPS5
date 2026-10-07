@@ -810,7 +810,13 @@ std::string DrawRejection(const QueueState& queue, bool indexed) {
 bool PixelProgramUnset(const QueueState& queue) {
     const auto low = find(queue.shader, 0x008, RegisterBank::Shader);
     const auto high = find(queue.shader, 0x009, RegisterBank::Shader);
-    return low != queue.shader.end() && high != queue.shader.end() && low->second == 0 && high->second == 0;
+    if (low != queue.shader.end() && high != queue.shader.end() && low->second == 0 && high->second == 0) return true;
+    const auto& cx = queue.context;
+    const auto zero = [&](std::uint32_t offset, std::uint32_t mask) {
+        const auto it = find(cx, offset);
+        return it != cx.end() && (it->second & mask) == 0;
+    };
+    return find(cx, 0x1b3) == cx.end() && find(cx, 0x1b4) == cx.end() && zero(0x1c4, ~0u) && zero(0x1c5, ~0u) && zero(0x203, 0x1c7u);
 }
 
 std::string NullPixelProgramRejection(const QueueState& queue) {

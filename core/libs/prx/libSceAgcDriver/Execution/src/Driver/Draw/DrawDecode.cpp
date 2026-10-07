@@ -94,7 +94,8 @@ std::shared_ptr<DrawDecode> Driver::decodeDraw(const QueueState& queue, const Su
             const auto rejection = Graphics::NullPixelProgramRejection(queue);
             require(rejection.empty(), rejection.c_str());
         }
-        append(0x008, 1, Stage::Fragment, 0x00b, 0x00c, Role::Fragment);
+        programs.push_back(prepare(nullPixel ? 0u : programAddress(0x008), 1, Stage::Fragment, 0x00b, 0x00c));
+        roles.push_back(Role::Fragment);
         programs.back().firstUserSgpr = 0;
         product->pixel = Graphics::DecodePixelStageInfo(queue.context, Graphics::ExportMappings(graphics), nullPixel);
         return product;

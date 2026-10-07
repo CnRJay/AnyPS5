@@ -4,6 +4,10 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Shaders/ShaderRegistry.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Texture.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
+#include <cstdio>
+#include <string>
 #include "Optimization/ResourceProgram.hpp"
 #include <cstdlib>
 #include <stdexcept>
@@ -265,6 +269,45 @@ void Driver::dispatch(QueueState& queue, std::span<const std::uint32_t> packet, 
         std::fprintf(stderr, "[dispatch-io] shader 0x%llx%s\n", static_cast<unsigned long long>(address), words.c_str());
     }
 
+    {
+        static const std::uint64_t probeShader = [] { const char* text = std::getenv("APS5_PROBE_SHADER"); return text ? std::strtoull(text, nullptr, 16) : 0ull; }();
+        static const int probeAt = [] { const char* text = std::getenv("APS5_PROBE_AT"); return text ? std::atoi(text) : 300; }();
+        static int seen = 0;
+        static bool flushNext = false;
+        const auto flushAll = [&](const char* which) {
+            const char* list = std::getenv("APS5_PROBE_FLUSH");
+            if (list == nullptr) return;
+            std::lock_guard probeLock(GuestMemory::GpuMutex());
+            const std::string text(list);
+            std::size_t start = 0;
+            while (start < text.size()) {
+                auto end = text.find(',', start);
+                if (end == std::string::npos) end = text.size();
+                const auto item = text.substr(start, end - start);
+                const auto colon = item.find(':');
+                const auto base = std::strtoull(item.substr(0, colon).c_str(), nullptr, 16);
+                const auto size = std::strtoull(item.substr(colon + 1).c_str(), nullptr, 16);
+                const bool flushed = Graphics::StorageTexture::FlushPending(base, static_cast<std::size_t>(size), nullptr, "probe");
+                if (auto* recorder = Graphics::Recorder::Active(); recorder != nullptr) recorder->SyncThrough(base, static_cast<std::size_t>(size));
+                std::fprintf(stderr, "[probe-flush] %s 0x%llx+0x%llx flushed=%d\n", which, (unsigned long long)base, (unsigned long long)size, flushed ? 1 : 0);
+                char name[96];
+                std::snprintf(name, sizeof(name), "probe_%s_%llx.bin", which, (unsigned long long)base);
+                if (std::FILE* file = std::fopen(name, "wb")) {
+                    std::fwrite(reinterpret_cast<const void*>(base), 1, static_cast<std::size_t>(size), file);
+                    std::fclose(file);
+                }
+                start = end + 1;
+            }
+        };
+        if (flushNext) {
+            flushNext = false;
+            flushAll("after");
+        }
+        if (probeShader != 0 && address == probeShader && ++seen == probeAt) {
+            flushAll("before");
+            flushNext = true;
+        }
+    }
     const auto rethrow = [&](const std::exception& error) {
         char where[64];
         std::snprintf(where, sizeof(where), "compute shader 0x%llx: ", static_cast<unsigned long long>(address));
