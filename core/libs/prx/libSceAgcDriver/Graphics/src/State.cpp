@@ -677,7 +677,6 @@ ColorTarget DecodeColorBuffer(const Registers& cx, std::uint32_t slot) {
         color.clearWords[word] = clear == cx.end() ? 0u : clear->second;
     }
     if ((info & 0x2000u) != 0) {
-        Require((info & 0x10000000u) == 0, "CMASK fast clears of a DCC color target are unsupported");
         Require(maxMip == 0 && !volume && slice == 0, "CMASK fast clears of a mipmapped, 3D or array color target are unsupported");
         const auto cmaskHigh = find(cx, 0x398 + slot);
         color.cmaskAddress = ((cmaskHigh == cx.end() ? 0ull : static_cast<std::uint64_t>(cmaskHigh->second & 0xffu)) << 40u) | (static_cast<std::uint64_t>(read(cx, 0x31f + stride)) << 8u);

@@ -748,9 +748,6 @@ void cmaskTests() {
     const auto target = DecodeColorBuffer(queue.context, 0);
     Require(target.cmaskAddress == cmaskAddress && target.cmaskBytes == cmaskMemory.size(), "the fast-clear target lost its CMASK");
     Require(DecodeColorBuffer(makeState().context, 0).cmaskAddress == 0, "a target without FAST_CLEAR got a CMASK");
-    auto compressed = queue;
-    compressed.context[0x31c] |= 0x10000000;
-    expectFailure([&] { DecodeColorBuffer(compressed.context, 0); }, "DCC color target");
     auto mipmapped = queue;
     mipmapped.context[0x3b0] |= 1u << 28u;
     expectFailure([&] { DecodeColorBuffer(mipmapped.context, 0); }, "mipmapped, 3D or array");
@@ -783,6 +780,22 @@ void cmaskTests() {
     cmaskMemory = {0x00, 0xff, 0x00, 0x00};
     expectFailure([&] { AgcDriver::Graphics::RunColorMetadataPass(context, *pass); }, "not all fast-cleared or all expanded");
     Require(texels(0x5a5a5a5au), "a refused pass changed the texels");
+
+    queue.context[0x31c] |= 0x10000000;
+    const auto keysAddress = reinterpret_cast<std::uintptr_t>(dccKeys.data());
+    queue.context[0x325] = static_cast<std::uint32_t>(keysAddress >> 8u);
+    queue.context[0x3a8] = static_cast<std::uint32_t>(keysAddress >> 40u);
+    pass = AgcDriver::Graphics::DecodeColorMetadataPass(queue);
+    Require(pass.has_value() && pass->targets.size() == 1 && pass->targets[0].cmaskAddress == cmaskAddress && pass->targets[0].dccAddress == keysAddress, "a DCC fast-clear target lost its CMASK or DCC keys");
+    std::memset(colorMemory.data(), 0x5a, colorMemory.size());
+    cmaskMemory.fill(0xff);
+    dccKeys.fill(0x20);
+    AgcDriver::Graphics::RunColorMetadataPass(context, *pass);
+    Require(texels(0x11223344) && cmaskIs(0xff) && std::ranges::all_of(dccKeys, [](std::uint8_t key) { return key == 0xff; }), "a DCC fast clear under an expanded CMASK was not eliminated through its keys");
+    std::memset(colorMemory.data(), 0x5a, colorMemory.size());
+    cmaskMemory.fill(0);
+    expectFailure([&] { AgcDriver::Graphics::RunColorMetadataPass(context, *pass); }, "DCC color target that is not all expanded");
+    Require(texels(0x5a5a5a5au), "a refused pass changed the texels of a DCC target");
 }
 
 void DepthClipTests() {
