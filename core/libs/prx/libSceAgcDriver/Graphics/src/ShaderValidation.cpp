@@ -521,7 +521,9 @@ std::set<std::uint32_t> ValidateShaders(std::span<const CompiledShader> shaders,
     std::set<std::uint32_t> locations;
     for (const auto& [location, signature] : previous.outputs) {
         if (location >= attachments) continue;
-        Require(signature == "vertex:f32x4", "fragment shader must export float4 colors to its attachments");
+        const auto targetFormat = location < state.colors.size() ? state.colors[location].format : VK_FORMAT_UNDEFINED;
+        const bool uintTarget = targetFormat == VK_FORMAT_R8_UINT || targetFormat == VK_FORMAT_R8G8_UINT || targetFormat == VK_FORMAT_R8G8B8A8_UINT || targetFormat == VK_FORMAT_R16_UINT || targetFormat == VK_FORMAT_R16G16_UINT || targetFormat == VK_FORMAT_R16G16B16A16_UINT || targetFormat == VK_FORMAT_R32_UINT || targetFormat == VK_FORMAT_R32G32_UINT || targetFormat == VK_FORMAT_R32G32B32A32_UINT || targetFormat == VK_FORMAT_A2B10G10R10_UINT_PACK32;
+        Require(signature == "vertex:f32x4" || (uintTarget && signature == "vertex:u32x4"), "fragment shader must export float4 colors to its attachments");
         locations.insert(location);
     }
     return locations;

@@ -560,7 +560,7 @@ std::uint32_t EmitReadLane(SpirvValueEmitContext& ctx, const IrValue& inst) {
     const IrValue* selector = inst.Argument(1)->Resolve();
     if (selector != nullptr && selector->HasImmediate() && HostSubgroupNarrowerThanWave(state)) {
         const auto index = selector->ImmediateU32() & (state.program.WaveSize() - 1u);
-        if (index >= state.hostSubgroupSize) FailOutsideHostSubgroup(ctx, inst, "v_readlane_b32 of lane " + std::to_string(index));
+        if (index >= state.hostSubgroupSize) return ctx.Shuffle(inst, 0, ConstantU32(state, index % state.hostSubgroupSize));
     }
     const auto lane = Binary(state, spv::OpBitwiseAnd, TypeU32(state), ctx.Arg(inst, 1), ConstantU32(state, state.program.WaveSize() - 1u));
     return ctx.Shuffle(inst, 0, lane);
