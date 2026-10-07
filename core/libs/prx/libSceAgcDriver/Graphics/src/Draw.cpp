@@ -103,8 +103,7 @@ void storeClearTexels(const Context& context, const ColorTarget& color, const st
 }
 
 std::size_t cmaskBytes(const ColorTarget& color) {
-    const auto tiles = static_cast<std::size_t>((color.extent.width + 7u) / 8u) * ((color.extent.height + 7u) / 8u);
-    return (tiles + 1u) / 2u;
+    return static_cast<std::size_t>((color.extent.width + 1023u) / 1024u) * ((color.extent.height + 511u) / 512u) * 4096u;
 }
 
 bool cmaskCleared(const ColorTarget& color) {
