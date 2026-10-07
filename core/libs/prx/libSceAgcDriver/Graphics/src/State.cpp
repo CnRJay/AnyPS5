@@ -617,6 +617,13 @@ std::array<std::uint8_t, 8> ExportMappings(const State& state) {
     return mappings;
 }
 
+std::size_t CmaskBytes(std::uint32_t width, std::uint32_t height) {
+    constexpr std::size_t metablockWidth = 1024;
+    constexpr std::size_t metablockHeight = 512;
+    constexpr std::size_t metablockBytes = 4096;
+    return ((width + metablockWidth - 1) / metablockWidth) * ((height + metablockHeight - 1) / metablockHeight) * metablockBytes;
+}
+
 ColorTarget DecodeColorBuffer(const Registers& cx, std::uint32_t slot) {
     const auto stride = slot * 0xfu;
     ColorTarget color{};
@@ -681,7 +688,7 @@ ColorTarget DecodeColorBuffer(const Registers& cx, std::uint32_t slot) {
         const auto cmaskHigh = find(cx, 0x398 + slot);
         color.cmaskAddress = ((cmaskHigh == cx.end() ? 0ull : static_cast<std::uint64_t>(cmaskHigh->second & 0xffu)) << 40u) | (static_cast<std::uint64_t>(read(cx, 0x31f + stride)) << 8u);
         Require(color.cmaskAddress != 0, "CMASK fast clears without a CMASK address are unsupported");
-        color.cmaskBytes = (static_cast<std::size_t>((color.extent.width + 7u) / 8u) * ((color.extent.height + 7u) / 8u) + 1u) / 2u;
+        color.cmaskBytes = CmaskBytes(color.extent.width, color.extent.height);
     }
     if ((info & 0x10000000u) != 0) {
         if (maxMip == 0) {
