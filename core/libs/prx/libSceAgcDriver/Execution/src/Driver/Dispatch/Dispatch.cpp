@@ -288,7 +288,7 @@ void Driver::dispatch(QueueState& queue, std::span<const std::uint32_t> packet, 
                 const auto base = std::strtoull(item.substr(0, colon).c_str(), nullptr, 16);
                 const auto size = std::strtoull(item.substr(colon + 1).c_str(), nullptr, 16);
                 const bool flushed = Graphics::StorageTexture::FlushPending(base, static_cast<std::size_t>(size), nullptr, "probe");
-                if (auto* recorder = Graphics::Recorder::Active(); recorder != nullptr) recorder->SyncThrough(base, static_cast<std::size_t>(size));
+                if (auto* recorder = Graphics::Recorder::Active(); recorder != nullptr) { recorder->FlushKeyStores(); recorder->FlushStores(); recorder->Sync(); }
                 std::fprintf(stderr, "[probe-flush] %s 0x%llx+0x%llx flushed=%d\n", which, (unsigned long long)base, (unsigned long long)size, flushed ? 1 : 0);
                 char name[96];
                 std::snprintf(name, sizeof(name), "probe_%s_%llx.bin", which, (unsigned long long)base);

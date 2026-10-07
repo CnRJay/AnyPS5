@@ -397,7 +397,7 @@ void ClearDepthSurfaces(VkDevice device) {
 bool DepthSurfaceViews(const DepthTarget& target, const GuestTextureResource& resource) {
     const bool plane = resource.baseAddress == target.address || (target.stencilAddress != 0 && resource.baseAddress == target.stencilAddress);
     const bool flat = resource.dimension == TextureDimension::k2D || resource.dimension == TextureDimension::k2DArray || resource.dimension == TextureDimension::kCube;
-    return plane && flat && resource.width == target.extent.width && resource.height == target.extent.height;
+    return plane && flat && resource.tileMode == TextureTileMode::kZ64KBX && resource.width == target.extent.width && resource.height == target.extent.height;
 }
 
 std::shared_ptr<Texture> DepthSurfaceTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& resource, VkComponentMapping components) {

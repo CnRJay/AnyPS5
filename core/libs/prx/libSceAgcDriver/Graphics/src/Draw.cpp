@@ -120,7 +120,8 @@ bool cmaskCleared(const ColorTarget& color) {
 
 void materializeCmaskClear(const Context& context, const ColorTarget& color, StorageTexture* resident) {
     (void)context;
-    if (!cmaskCleared(color)) return;
+    static const bool disabled = std::getenv("APS5_PROBE_NO_CMASK") != nullptr;
+    if (disabled || !cmaskCleared(color)) return;
     std::array<std::byte, 16> texel{};
     Require(color.elementBytes != 0 && color.elementBytes <= sizeof(color.clearWords), "the CMASK clear of a texel over 64 bits is not modeled");
     std::memcpy(texel.data(), color.clearWords.data(), color.elementBytes);
@@ -1897,7 +1898,11 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
             memoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT);
             if (dumpLimit > 0) {
                 std::lock_guard lock(dumpMutex);
-                if (dumped[binding.color.address] < dumpLimit) {
+                static const std::uint64_t onlyAddress = [] { const char* text = std::getenv("APS5_DUMP_TARGET_ADDR"); return text ? std::strtoull(text, nullptr, 16) : 0ull; }();
+                static const int skipFirst = [] { const char* text = std::getenv("APS5_DUMP_TARGET_SKIP"); return text ? std::atoi(text) : 0; }();
+                static std::map<std::uint64_t, int> seenDraws;
+                const bool wanted = (onlyAddress == 0 || onlyAddress == binding.color.address) && seenDraws[binding.color.address]++ >= skipFirst;
+                if (wanted && dumped[binding.color.address] < dumpLimit) {
                     binding.dump = std::make_unique<Buffer>(context, binding.linearDevice->Size(), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
                     CopyBuffer(context, commands, binding.linearDevice->Handle(), 0, binding.dump->Handle(), 0, binding.linearDevice->Size());
                 }

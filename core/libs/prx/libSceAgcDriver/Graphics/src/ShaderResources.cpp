@@ -305,7 +305,13 @@ std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const s
     // the GPU supplies the texture by a view of it; anything else needs those results in guest
     // memory first.
     auto source = StorageTexture::FindPending(address, guestBytes);
-    if (source != nullptr && (depthCompare || !Texture::CanCopyFrom(*source, resource) || MetadataMoved(*source, resource))) source.reset();
+    static const std::uint64_t probeTex = [] { const char* text = std::getenv("APS5_PROBE_TEX"); return text ? std::strtoull(text, nullptr, 16) : 0ull; }();
+    if (probeTex == address) {
+        static int probeCount = 0;
+        if (probeCount++ % 100 == 0) std::fprintf(stderr, "[probe-tex] 0x%llx %ux%u fmt %u tile %u: pending %d copy %d moved %d depthCompare %d src %ux%u fmt %u tile %u\n", static_cast<unsigned long long>(address), resource.width, resource.height, resource.format, static_cast<unsigned>(resource.tileMode), source != nullptr ? 1 : 0, source != nullptr && Texture::CanCopyFrom(*source, resource) ? 1 : 0, source != nullptr && MetadataMoved(*source, resource) ? 1 : 0, depthCompare ? 1 : 0, source ? source->Descriptor().width : 0u, source ? source->Descriptor().height : 0u, source ? source->Descriptor().format : 0u, source ? static_cast<unsigned>(source->Descriptor().tileMode) : 0u);
+    }
+    static const bool noPendingView = std::getenv("APS5_PROBE_NO_PENDING_VIEW") != nullptr;
+    if (source != nullptr && (noPendingView || depthCompare || !Texture::CanCopyFrom(*source, resource) || MetadataMoved(*source, resource))) source.reset();
     std::optional<DccKeys> keys;
     bool clearThroughKeys = false;
     if (source != nullptr && resource.dccAddress != 0 && IsDccClear(source->FilledKeys())) {
@@ -329,7 +335,7 @@ std::shared_ptr<Texture> cachedTexture(const Context& context, std::span<const s
     // import, recorded behind the producer, so no bytes are read or compared on the CPU and nothing
     // waits for the producer. A fast-cleared surface (keys) is viewed only through an image whose own
     // descriptor carries the DCC address (below); it stays a snapshot otherwise, its texels not read.
-    if (!depthCompare && source == nullptr && !clearThroughKeys && SampledFromStorageEligible(context, resource, guestBytes)) {
+    if (!noPendingView && !depthCompare && source == nullptr && !clearThroughKeys && SampledFromStorageEligible(context, resource, guestBytes)) {
 
         keys = scanKeys();
         if (*keys == DccKeys::Uncompressed) {

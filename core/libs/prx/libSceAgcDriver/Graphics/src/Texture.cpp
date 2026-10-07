@@ -1253,7 +1253,8 @@ bool StorageTexture::Refresh() {
     if (anyStored && !keysChanged && descriptor.dccAddress != 0 && IsDccClear(uploadedKeys)) stored.assign(trackedLayers, true);
     if (pendingResults) {
         static std::atomic<int> reports{0};
-        if (reports.fetch_add(1) < 8) std::fprintf(stderr, "[gpu] storage image 0x%llx: guest memory changed while GPU results were pending; keeping the CPU's blocks\n", static_cast<unsigned long long>(descriptor.baseAddress));
+        static const bool everyDrop = std::getenv("APS5_PROBE_DROPS") != nullptr;
+        if (everyDrop || reports.fetch_add(1) < 8) std::fprintf(stderr, "[gpu] storage image 0x%llx: guest memory changed while GPU results were pending; keeping the CPU's blocks\n", static_cast<unsigned long long>(descriptor.baseAddress));
     }
     if (anyStored) {
         const auto previous = std::exchange(flushReason, "refresh");
