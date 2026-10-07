@@ -91,6 +91,7 @@ int APS5_VABI sceVideoOutRegisterBuffers2(int handle, int setIndex, int bufferIn
         if (buffers[i].reserved[0] != nullptr || buffers[i].reserved[1] != nullptr) throw std::runtime_error("VideoOut: reserved buffer pointers are set");
         registered[i] = {setIndex, reinterpret_cast<uint64_t>(buffers[i].data), reinterpret_cast<uint64_t>(buffers[i].metadata)};
         const auto display = DescribeVideoOutBuffer(registered[i], group);
+        std::fprintf(stderr, "[probe-vo] register set %d slot %d data 0x%llx meta 0x%llx fmt 0x%llx %ux%u tiling %u category %d dccctl 0x%x clear 0x%llx%c", setIndex, bufferIndexStart + i, (unsigned long long)registered[i].dataAddress, (unsigned long long)registered[i].metadataAddress, (unsigned long long)attribute->pixel_format, attribute->width, attribute->height, attribute->tiling_mode, category, (unsigned)attribute->dcc_control, (unsigned long long)attribute->dcc_cb_register_clear_color, 10);
         AgcDriverCheckGuestMemory_nid_postfix(buffers[i].data, AgcDriverDisplayBufferSize_nid_postfix(display), 65536);
     }
     cfg->groups[setIndex] = group;

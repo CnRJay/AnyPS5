@@ -554,9 +554,9 @@ GuestTextureResource StorageSurface(const Context& context, const GuestTextureRe
 
 // `guestBytes` is the surface size when the caller described the surface already (0: described here).
 std::shared_ptr<StorageTexture> cachedStorageTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& viewed, std::uint32_t mip, std::uint64_t guestBytes) {
-    if (DepthSurfaceAt(viewed.baseAddress)) {
-        char text[112];
-        std::snprintf(text, sizeof(text), "AGC graphics: storage image access to depth/stencil surface 0x%llx is not implemented", static_cast<unsigned long long>(viewed.baseAddress));
+    if (DepthSurfaceAt(viewed)) {
+        char text[400];
+        std::snprintf(text, sizeof(text), "AGC graphics: storage image access to depth/stencil surface 0x%llx is not implemented [probe view %ux%u fmt %u tile %u dim %d mips %u words %08x %08x %08x %08x %08x %08x %08x %08x]", static_cast<unsigned long long>(viewed.baseAddress), viewed.width, viewed.height, viewed.format, (unsigned)viewed.tileMode, (int)viewed.dimension, viewed.mipCount, words.size()>0?words[0]:0, words.size()>1?words[1]:0, words.size()>2?words[2]:0, words.size()>3?words[3]:0, words.size()>4?words[4]:0, words.size()>5?words[5]:0, words.size()>6?words[6]:0, words.size()>7?words[7]:0);
         throw std::runtime_error(text);
     }
     static const bool disabled = std::getenv("APS5_NO_TEXTURE_CACHE") != nullptr;

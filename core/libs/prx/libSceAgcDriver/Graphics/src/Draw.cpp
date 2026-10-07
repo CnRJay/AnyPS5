@@ -102,6 +102,43 @@ void storeClearTexels(const Context& context, const ColorTarget& color, const st
     MarkDccUncompressed(context, color.dccAddress, color.bytes);
 }
 
+std::size_t cmaskBytes(const ColorTarget& color) {
+    const auto tiles = static_cast<std::size_t>((color.extent.width + 7u) / 8u) * ((color.extent.height + 7u) / 8u);
+    return (tiles + 1u) / 2u;
+}
+
+bool cmaskCleared(const ColorTarget& color) {
+    if (color.cmaskAddress == 0) return false;
+    const auto count = cmaskBytes(color);
+    if (auto* recorder = Recorder::Active(); recorder != nullptr && recorder->PendingWriteOverlaps(color.cmaskAddress, count)) {
+        Recorder::CountSync(2);
+        recorder->SyncThrough(color.cmaskAddress, count);
+    }
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(color.cmaskAddress);
+    return std::all_of(bytes, bytes + count, [](std::uint8_t value) { return value == 0u; });
+}
+
+void materializeCmaskClear(const Context& context, const ColorTarget& color, StorageTexture* resident) {
+    (void)context;
+    if (!cmaskCleared(color)) return;
+    std::array<std::byte, 16> texel{};
+    Require(color.elementBytes != 0 && color.elementBytes <= sizeof(color.clearWords), "the CMASK clear of a texel over 64 bits is not modeled");
+    std::memcpy(texel.data(), color.clearWords.data(), color.elementBytes);
+    const char* refusal = nullptr;
+    if (resident == nullptr || !clearToTexel(*resident, texel, color.elementBytes, refusal)) {
+        StorageTexture::FlushPending(color.address, color.bytes, nullptr, "fast-clear materialization");
+        const auto elementBytes = static_cast<std::size_t>(color.elementBytes);
+        std::vector<std::byte> texels(color.bytes);
+        for (std::size_t offset = 0; offset + elementBytes <= texels.size(); offset += elementBytes) std::memcpy(texels.data() + offset, texel.data(), elementBytes);
+        GuestMemory::Write(color.address, texels);
+        if (resident != nullptr) resident->Refresh();
+    } else {
+        resident->MarkDirty();
+    }
+    std::vector<std::byte> expanded(cmaskBytes(color), std::byte{0xff});
+    GuestMemory::Write(color.cmaskAddress, expanded);
+}
+
 void materializeRegisterClear(const Context& context, const ColorTarget& color, StorageTexture& resident) {
     if (color.dccAddress == 0 || resident.Descriptor().dccAddress != color.dccAddress) return;
     if (CurrentDccKeys(color.dccAddress, color.bytes) != DccKeys::ClearRegister) return;
@@ -889,6 +926,7 @@ std::shared_ptr<StorageTexture> refreshResidentTarget(const Context& context, co
     try {
         resident = lookup();
         if (resident != nullptr) materializeRegisterClear(context, color, *resident);
+        materializeCmaskClear(context, color, resident.get());
     } catch (const std::exception& error) {
         static std::mutex reportMutex;
         static std::set<std::uint64_t> reported;
@@ -2069,6 +2107,19 @@ DrawRecipeOutcome DrawWithRecipe(const Context& context, const State& state, con
 
 void RunColorMetadataPass(const Context& context, const ColorMetadataPass& pass) {
     for (const auto& color : pass.targets) {
+        if (color.cmaskAddress != 0) {
+            std::shared_ptr<StorageTexture> resident;
+            if ((color.tileMode == ColorTileMode::RenderTarget || color.tileMode == ColorTileMode::Standard4KB) && context.detiler != nullptr) {
+                try {
+                    resident = CachedStorageSurface(context, SurfaceForTarget(color));
+                } catch (const std::exception&) {
+                    resident = nullptr;
+                }
+                if (resident != nullptr && resident->GuestBytes() != color.bytes) resident = nullptr;
+            }
+            materializeCmaskClear(context, color, resident.get());
+            continue;
+        }
         if (color.dccAddress == 0) continue;
         auto keys = CurrentDccKeys(color.dccAddress, color.bytes);
         if (keys == DccKeys::Uncompressed) continue;

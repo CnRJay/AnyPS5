@@ -266,8 +266,10 @@ int APS5_VABI sceHttpSetInflateGZIPEnabled(int id, int enable) {
     return 0;
 }
 
-int APS5_VABI sceHttpSetRequestStatusCallback(void) {
-    NotImplemented_nid_no_patch(__func__);
+int APS5_VABI sceHttpSetRequestStatusCallback(int id, void* cbfunc, void* user_arg) {
+    (void)id;
+    (void)cbfunc;
+    (void)user_arg;
     return 0;
 }
 
@@ -371,26 +373,33 @@ int APS5_VABI sceHttpGetLastErrno(int request_id, int* errno_out) {
 }
 
 APS5_EXPORT("JBN6N-EY+3M", sceHttpUnknown_JBN6N_MEY_P3M);
-int APS5_VABI sceHttpUnknown_JBN6N_MEY_P3M(void) {
-    NotImplemented_nid_no_patch("JBN6N-EY+3M");
-    return 0;
+int APS5_VABI sceHttpUnknown_JBN6N_MEY_P3M(int id, int* err_num, uint32_t* detail) {
+    (void)id;
+    (void)err_num;
+    (void)detail;
+    return ERROR_NETWORK;
 }
 
 APS5_EXPORT("Kh6bS2HQKbo", sceHttpUnknown_Kh6bS2HQKbo);
-int APS5_VABI sceHttpUnknown_Kh6bS2HQKbo(void) {
-    NotImplemented_nid_no_patch("Kh6bS2HQKbo");
+int APS5_VABI sceHttpUnknown_Kh6bS2HQKbo(int id, void* cbfunc, void* user_arg) {
+    (void)id;
+    (void)cbfunc;
+    (void)user_arg;
     return 0;
 }
 
 APS5_EXPORT("U5ExQGyyx9s", sceHttpUnknown_U5ExQGyyx9s);
-int APS5_VABI sceHttpUnknown_U5ExQGyyx9s(void) {
-    NotImplemented_nid_no_patch("U5ExQGyyx9s");
+int APS5_VABI sceHttpUnknown_U5ExQGyyx9s(int id, uint32_t version) {
+    (void)id;
+    (void)version;
     return 0;
 }
 
 APS5_EXPORT("h9wmFZX4i-4", sceHttpUnknown_h9wmFZX4i_M4);
-int APS5_VABI sceHttpUnknown_h9wmFZX4i_M4(void) {
-    NotImplemented_nid_no_patch("h9wmFZX4i-4");
+int APS5_VABI sceHttpUnknown_h9wmFZX4i_M4(int id, void* cbfunc, void* user_arg) {
+    (void)id;
+    (void)cbfunc;
+    (void)user_arg;
     return 0;
 }
 

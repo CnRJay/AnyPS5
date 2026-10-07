@@ -154,6 +154,7 @@ VkImageView DepthSurfaceView(const Context& context, const DepthTarget& target) 
     for (const auto& surface : surfaces()) {
         if (surface->context.device == context.device && sameSurface(surface->target, target)) return surface->view;
     }
+    std::fprintf(stderr, "[probe] depth surface 0x%llx stencil 0x%llx %ux%u vk %d\n", (unsigned long long)target.address, (unsigned long long)target.stencilAddress, target.extent.width, target.extent.height, (int)target.format);
     surfaces().push_back(std::make_unique<DepthSurface>(context, target));
     return surfaces().back()->view;
 }
@@ -163,18 +164,22 @@ void ClearDepthSurfaces(VkDevice device) {
     std::erase_if(surfaces(), [&](const auto& surface) { return surface->context.device == device; });
 }
 
+bool DepthSurfaceViews(const DepthTarget& target, const GuestTextureResource& resource) {
+    const bool plane = resource.baseAddress == target.address || (target.stencilAddress != 0 && resource.baseAddress == target.stencilAddress);
+    const bool flat = resource.dimension == TextureDimension::k2D || resource.dimension == TextureDimension::k2DArray;
+    return plane && flat && resource.width == target.extent.width && resource.height == target.extent.height;
+}
+
 std::shared_ptr<Texture> DepthSurfaceTexture(const Context& context, std::span<const std::uint32_t> words, const GuestTextureResource& resource, VkComponentMapping components) {
     std::lock_guard lock(surfacesMutex());
     const auto& list = surfaces();
-    const auto found = std::find_if(list.rbegin(), list.rend(), [&](const auto& surface) {
-        return surface->context.device == context.device && (surface->target.address == resource.baseAddress || (surface->target.stencilAddress != 0 && surface->target.stencilAddress == resource.baseAddress));
-    });
+    const auto found = std::find_if(list.rbegin(), list.rend(), [&](const auto& surface) { return surface->context.device == context.device && DepthSurfaceViews(surface->target, resource); });
     return found == list.rend() ? nullptr : (*found)->Sampled(words, resource, components);
 }
 
-bool DepthSurfaceAt(std::uint64_t address) {
+bool DepthSurfaceAt(const GuestTextureResource& resource) {
     std::lock_guard lock(surfacesMutex());
-    return std::any_of(surfaces().begin(), surfaces().end(), [&](const auto& surface) { return surface->target.address == address || surface->target.stencilAddress == address; });
+    return std::any_of(surfaces().begin(), surfaces().end(), [&](const auto& surface) { return DepthSurfaceViews(surface->target, resource); });
 }
 
 }

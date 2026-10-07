@@ -6,6 +6,10 @@
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libc/include/General.hpp"
 #include <algorithm>
+#include <array>
+#include <mutex>
+#include <set>
+#include <string>
 #include <bit>
 #include <bitset>
 #include <cmath>
@@ -628,7 +632,23 @@ ColorTarget DecodeColorBuffer(const Registers& cx, std::uint32_t slot) {
     const auto format = (info >> 2u) & 0x1fu;
     const auto decoded = DecodeColorFormat(format, number, swap);
     // ROUND_MODE (bit 18) only affects unorm rounding. With DCC_ENABLE (bit 28) the target is written
-    if ((info & ~(0x00039f7cu | 0x00040000u | 0x10000000u)) != 0) throw std::runtime_error("AGC graphics: color compression, DCC, endian conversion, nonstandard rounding or color optimization is unsupported (CB_COLOR_INFO 0x" + [&] { char text[16]; std::snprintf(text, sizeof(text), "%08x", info); return std::string(text); }() + ")");
+    if ((info & 0x2000u) != 0) {
+        static std::mutex probeMutex;
+        static std::set<std::pair<std::uint64_t, std::uint64_t>> seen;
+        const auto cmaskAddress = static_cast<std::uint64_t>(read(cx, 0x31f + stride)) << 8u;
+        const auto attrib2p = read(cx, 0x3b0 + slot);
+        const std::uint64_t pixels = static_cast<std::uint64_t>(((attrib2p >> 14u) & 0x3fffu) + 1u) * ((attrib2p & 0x3fffu) + 1u);
+        const std::size_t count = static_cast<std::size_t>(pixels / 128u);
+        std::array<std::size_t, 256> histogram{};
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(cmaskAddress);
+        for (std::size_t i = 0; i < count; ++i) histogram[bytes[i]]++;
+        std::uint64_t signature = 0;
+        std::string text;
+        for (std::size_t v = 0; v < 256; ++v) if (histogram[v]) { signature = signature * 1315423911u + v * 7919u + (histogram[v] * 2 > count ? 1 : 0); char b[32]; std::snprintf(b, sizeof(b), " %02zx:%zu", v, histogram[v]); text += b; }
+        std::lock_guard probeLock(probeMutex);
+        if (seen.size() < 200 && seen.emplace(cmaskAddress, signature).second) std::fprintf(stderr, "[probe-cmask] info 0x%08x surface 0x%llx cmask 0x%llx count %zu clear %08x %08x:%s\n", info, static_cast<unsigned long long>(static_cast<std::uint64_t>(read(cx, 0x318 + stride)) << 8u), static_cast<unsigned long long>(cmaskAddress), count, find(cx, 0x323 + stride) == cx.end() ? 0u : find(cx, 0x323 + stride)->second, find(cx, 0x324 + stride) == cx.end() ? 0u : find(cx, 0x324 + stride)->second, text.size() > 300 ? text.substr(0, 300).c_str() : text.c_str());
+    }
+    if ((info & ~(0x00039f7cu | 0x00040000u | 0x10000000u | 0x2000u)) != 0) throw std::runtime_error("AGC graphics: color compression, DCC, endian conversion, nonstandard rounding or color optimization is unsupported (CB_COLOR_INFO 0x" + [&] { char text[16]; std::snprintf(text, sizeof(text), "%08x", info); return std::string(text); }() + ")");
     Require((info & 0x8000u) != 0 || number == 7 || number == 4 || number == 5, "unclamped normalized color is unsupported");
     const auto view = read(cx, 0x31b + stride);
     Require((view & ~0x3fffffffu) == 0, "reserved CB_COLOR_VIEW bits are set");
@@ -676,6 +696,7 @@ ColorTarget DecodeColorBuffer(const Registers& cx, std::uint32_t slot) {
         const auto clear = find(cx, 0x323 + word + stride);
         color.clearWords[word] = clear == cx.end() ? 0u : clear->second;
     }
+    if ((info & 0x2000u) != 0 && (info & 0x10000000u) == 0 && maxMip == 0 && !volume) color.cmaskAddress = (static_cast<std::uint64_t>(read(cx, 0x3a0 + slot) & 0xffu) << 40u) | (static_cast<std::uint64_t>(read(cx, 0x31f + stride)) << 8u);
     if ((info & 0x10000000u) != 0) {
         if (maxMip == 0) {
             const auto dccHigh = find(cx, 0x3a8 + slot);
