@@ -1048,8 +1048,10 @@ int APS5_VABI sceNetResolverGetError(int rid, int* status) {
     return 0;
 }
 
-int APS5_VABI sceNetResolverAbort(void) {
-    NotImplemented_nid_no_patch(__func__);
+int APS5_VABI sceNetResolverAbort(int rid, int flags) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (g_resolvers.count(rid) == 0) return fail(NET_EBADF);
+    if (flags != 0) throw std::invalid_argument("sceNetResolverAbort: preservation flags are not supported");
     return 0;
 }
 

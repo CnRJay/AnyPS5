@@ -144,8 +144,9 @@ int APS5_VABI sceNpEntitlementAccessRequestUnifiedEntitlementInfo(void) {
     return 0;
 }
 
-int APS5_VABI sceNpEntitlementAccessGetPftFlag(void) {
-    NotImplemented_nid_no_patch(__func__);
+int APS5_VABI sceNpEntitlementAccessGetPftFlag(int32_t* flag) {
+    if (!flag) APS5_INVALID_ARG_EX;
+    *flag = 0;
     return 0;
 }
 
