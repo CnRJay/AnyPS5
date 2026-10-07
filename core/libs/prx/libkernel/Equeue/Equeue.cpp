@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include "Equeue.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 

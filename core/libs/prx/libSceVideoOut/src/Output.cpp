@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -192,6 +193,7 @@ int APS5_VABI sceVideoOutInitializeOutputOptions(VideoOutOutputOptions* options)
 }
 
 int APS5_VABI sceVideoOutIsOutputSupported(int handle, uint64_t mode, const VideoOutOutputOptions* options, void* reservedPtr, uint64_t reserved) try {
+    std::fprintf(stderr, "[probe] IsOutputSupported mode=0x%llx caller=%p%c", (unsigned long long)mode, __builtin_return_address(0), 10);
     const int result = validateOutputConfig(handle, mode, options, reservedPtr, reserved);
     if (result != 0) {
         return result;
@@ -202,6 +204,7 @@ int APS5_VABI sceVideoOutIsOutputSupported(int handle, uint64_t mode, const Vide
 }
 
 int APS5_VABI sceVideoOutConfigureOutput(int handle, uint64_t mode, const VideoOutOutputOptions* options, void* reservedPtr, uint64_t reserved) try {
+    std::fprintf(stderr, "[probe] ConfigureOutput mode=0x%llx caller=%p%c", (unsigned long long)mode, __builtin_return_address(0), 10);
     const int supported = sceVideoOutIsOutputSupported(handle, mode, options, reservedPtr, reserved);
     if (supported < 0) {
         return supported;
@@ -216,6 +219,26 @@ int APS5_VABI sceVideoOutConfigureOutput(int handle, uint64_t mode, const VideoO
     std::unique_lock lock(cfg->mutex);
     cfg->Check();
     cfg->outputMode = mode;
+    return 0;
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
+}
+
+int APS5_VABI sceVideoOutVrrPegToFixedRate(int handle, uint32_t first, uint32_t second) try {
+    (void)first;
+    (void)second;
+    if (!VideoOutDriver::Get().IsOpen(handle)) {
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
+    }
+    return 0;
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
+}
+
+int APS5_VABI sceVideoOutVrrUnpegFromFixedRate(int handle) try {
+    if (!VideoOutDriver::Get().IsOpen(handle)) {
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
+    }
     return 0;
 } catch (const ProcessShutdown&) {
     LibcAwaitExit_nid_postfix();
@@ -271,26 +294,6 @@ int APS5_VABI sceVideoOutAdjustColor(int handle, const VideoOutColorSettings* se
         throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     // Output gamma is accepted but not yet applied to presentation.
-    return 0;
-} catch (const ProcessShutdown&) {
-    LibcAwaitExit_nid_postfix();
-}
-
-int APS5_VABI sceVideoOutVrrUnpegFromFixedRate(int handle) try {
-    if (!VideoOutDriver::Get().IsOpen(handle)) {
-        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
-    }
-    return 0;
-} catch (const ProcessShutdown&) {
-    LibcAwaitExit_nid_postfix();
-}
-
-int APS5_VABI sceVideoOutVrrPegToFixedRate(int handle, uint32_t first, uint32_t second) try {
-    (void)first;
-    (void)second;
-    if (!VideoOutDriver::Get().IsOpen(handle)) {
-        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
-    }
     return 0;
 } catch (const ProcessShutdown&) {
     LibcAwaitExit_nid_postfix();

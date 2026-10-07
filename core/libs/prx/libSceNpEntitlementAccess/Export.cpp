@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstdint>
 #include <cstddef>
 #include "SceTypes.hpp"

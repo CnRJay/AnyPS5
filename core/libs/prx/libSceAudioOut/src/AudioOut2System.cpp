@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <cstdint>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
