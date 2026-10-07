@@ -316,8 +316,14 @@ struct DebugProbe {
     std::uint32_t programCounter = 0;
     std::uint32_t vgpr = 0;
     std::uint32_t shift = 0;
+    bool bySample = false;
+    bool byInstruction = false;
+    std::uint32_t sample = 0;
+    std::uint32_t component = 0;
 };
 [[nodiscard]] DebugProbe DebugProbeConfig();
+std::uint32_t NextDebugProbeSample();
+std::uint32_t NextDebugProbeInstruction();
 
 }
 

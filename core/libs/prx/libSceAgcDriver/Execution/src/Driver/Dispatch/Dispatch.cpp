@@ -10,6 +10,7 @@
 #include <string>
 #include "Optimization/ResourceProgram.hpp"
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 
 namespace AgcDriver::DriverDetail {
@@ -91,15 +92,15 @@ void Driver::dispatch(QueueState& queue, std::span<const std::uint32_t> packet, 
         if (text == nullptr) return std::pair<std::uint64_t, std::uint64_t>{0, 0};
         char* end = nullptr;
         const auto probeAddress = std::strtoull(text, &end, 16);
-        const auto index = end != nullptr && *end == ':' ? std::strtoull(end + 1, nullptr, 10) : 0ull;
+        const auto index = end != nullptr && *end == ':' ? (std::strncmp(end + 1, "all", 3) == 0 ? ~0ull : std::strtoull(end + 1, nullptr, 10)) : 0ull;
         return std::pair<std::uint64_t, std::uint64_t>{probeAddress, index};
     }();
     bool probeThis = false;
 
     if (probeDispatch.first != 0 && (address & 0xfffffffffull) == (probeDispatch.first & 0xfffffffffull)) {
         static std::atomic<std::uint64_t> dispatchesSeen{0};
-        probeThis = dispatchesSeen.fetch_add(1) == probeDispatch.second;
-        if (probeThis) std::fprintf(stderr, "[gpu] probing dispatch %llu of 0x%llx\n", static_cast<unsigned long long>(probeDispatch.second), static_cast<unsigned long long>(address));
+        probeThis = probeDispatch.second == ~0ull || dispatchesSeen.fetch_add(1) == probeDispatch.second;
+        if (probeThis && probeDispatch.second != ~0ull) std::fprintf(stderr, "[gpu] probing dispatch %llu of 0x%llx\n", static_cast<unsigned long long>(probeDispatch.second), static_cast<unsigned long long>(address));
     }
 
     if (FailureMemo() && snapshot.handles->poisoned.load(std::memory_order_relaxed) != 0) {
@@ -287,10 +288,20 @@ void Driver::dispatch(QueueState& queue, std::span<const std::uint32_t> packet, 
                 const auto colon = item.find(':');
                 const auto base = std::strtoull(item.substr(0, colon).c_str(), nullptr, 16);
                 const auto size = std::strtoull(item.substr(colon + 1).c_str(), nullptr, 16);
+                if (auto* recorder = Graphics::Recorder::Active(); recorder != nullptr) { recorder->FlushKeyStores(); recorder->FlushStores(); recorder->Sync(); }
+                if (auto pending = Graphics::StorageTexture::FindPending(base, static_cast<std::size_t>(size)); pending != nullptr) {
+                    char gpuName[96];
+                    std::snprintf(gpuName, sizeof(gpuName), "gpu_pre_%s_%llx.raw", which, (unsigned long long)base);
+                    pending->ProbeReadback(gpuName);
+                }
                 const bool flushed = Graphics::StorageTexture::FlushPending(base, static_cast<std::size_t>(size), nullptr, "probe");
                 if (auto* recorder = Graphics::Recorder::Active(); recorder != nullptr) { recorder->FlushKeyStores(); recorder->FlushStores(); recorder->Sync(); }
                 std::fprintf(stderr, "[probe-flush] %s 0x%llx+0x%llx flushed=%d\n", which, (unsigned long long)base, (unsigned long long)size, flushed ? 1 : 0);
                 char name[96];
+                if (auto pending = Graphics::StorageTexture::FindPending(base, static_cast<std::size_t>(size)); pending != nullptr) {
+                    std::snprintf(name, sizeof(name), "gpu_%s_%llx.raw", which, (unsigned long long)base);
+                    pending->ProbeReadback(name);
+                }
                 std::snprintf(name, sizeof(name), "probe_%s_%llx.bin", which, (unsigned long long)base);
                 if (std::FILE* file = std::fopen(name, "wb")) {
                     std::fwrite(reinterpret_cast<const void*>(base), 1, static_cast<std::size_t>(size), file);

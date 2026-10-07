@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "Translation/DispatchInstructions.hpp"
 #include "Translation/TranslationContext.hpp"
 #include "Recompiler.hpp"
@@ -61,7 +62,19 @@ void TranslationContext::TranslateInstruction(const RdnaInstruction& decoded) {
     if (!translated) {
         throw std::runtime_error("opcode has no IR translation at pc " + std::to_string(instruction.programCounter));
     }
-    if (const DebugProbe probe = DebugProbeConfig(); probe.enabled && instruction.programCounter == probe.programCounter) {
+    if (const DebugProbe probe = DebugProbeConfig(); probe.enabled && probe.byInstruction) {
+        const auto index = NextDebugProbeInstruction();
+        if (index == probe.sample && instruction.destination.kind == RdnaOperandKind::VectorRegister) {
+            static std::atomic<bool> reported{false};
+            if (!reported.exchange(true)) std::fprintf(stderr, "[shader-probe] instruction %u pc 0x%x opcode %u dest v%u\n", index, instruction.programCounter, static_cast<unsigned>(instruction.op), instruction.destination.reg + probe.component);
+            RdnaOperand source = instruction.destination;
+            source.reg += probe.component;
+            RdnaOperand target{};
+            target.kind = RdnaOperandKind::VectorRegister;
+            target.reg = 255u;
+            writeOperand(target, &readRawU32(source).Value());
+        }
+    } else if (const DebugProbe probe = DebugProbeConfig(); probe.enabled && instruction.programCounter == probe.programCounter) {
         RdnaOperand source{};
         source.kind = RdnaOperandKind::VectorRegister;
         source.reg = probe.vgpr;
@@ -76,8 +89,21 @@ namespace {
 std::atomic<bool> g_debugProbeActive{false};
 }
 
+std::atomic<std::uint32_t> g_debugProbeSamples{0};
+std::atomic<std::uint32_t> g_debugProbeInstructions{0};
+
 void SetDebugProbeActive(bool active) {
     g_debugProbeActive.store(active);
+    g_debugProbeSamples.store(0);
+    g_debugProbeInstructions.store(0);
+}
+
+std::uint32_t NextDebugProbeSample() {
+    return g_debugProbeSamples.fetch_add(1);
+}
+
+std::uint32_t NextDebugProbeInstruction() {
+    return g_debugProbeInstructions.fetch_add(1);
 }
 
 bool DebugProbeActive() {
@@ -113,8 +139,23 @@ DebugProbe DebugProbeConfig() {
         result.enabled = result.vgpr < 255u;
         return result;
     }();
-    DebugProbe probe = parsed;
-    probe.enabled = parsed.enabled && DebugProbeActive();
+    static const DebugProbe sampled = [] {
+        DebugProbe result;
+        const char* text = std::getenv("APS5_PROBE_SAMPLE");
+        const char* instructionText = std::getenv("APS5_PROBE_INST");
+        if (text == nullptr) text = instructionText;
+        if (text == nullptr) return result;
+        result.byInstruction = instructionText != nullptr && text == instructionText;
+        char* end = nullptr;
+        result.sample = static_cast<std::uint32_t>(std::strtoul(text, &end, 10));
+        if (end != nullptr && *end == ':') result.component = static_cast<std::uint32_t>(std::strtoul(end + 1, nullptr, 10));
+        result.enabled = true;
+        result.bySample = true;
+        result.programCounter = 0xffffffffu;
+        return result;
+    }();
+    DebugProbe probe = sampled.enabled ? sampled : parsed;
+    probe.enabled = probe.enabled && DebugProbeActive();
     return probe;
 }
 

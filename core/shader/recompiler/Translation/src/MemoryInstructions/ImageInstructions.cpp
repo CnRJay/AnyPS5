@@ -145,7 +145,13 @@ bool TranslationContext::imageStore(const RdnaInstruction& inst) {
         probeReg.reg = 255u;
         IrValue& probed = ir.ShiftRightLogical(readRawU32(probeReg).Value(), ir.Constant(probe.shift));
         IrValue& zero = ir.Constant(0u);
-        data = &ir.Emit(IrOpcode::CompositeConstructU32x4, IrOpcodeType(IrOpcode::CompositeConstructU32x4), {&probed, &zero, &zero, &zero});
+        if (probe.bySample) {
+            IrValue& nonzero = ir.Emit(IrOpcode::INotEqual32, IrOpcodeType(IrOpcode::INotEqual32), {&probed, &zero});
+            IrValue& white = ir.Emit(IrOpcode::SelectU32, IrOpcodeType(IrOpcode::SelectU32), {&nonzero, &ir.Constant(memory.dataBits == 16u ? 0x3c003c00u : 0x3f800000u), &zero});
+            data = &ir.Emit(IrOpcode::CompositeConstructU32x4, IrOpcodeType(IrOpcode::CompositeConstructU32x4), {&white, &white, &white, &white});
+        } else {
+            data = &ir.Emit(IrOpcode::CompositeConstructU32x4, IrOpcodeType(IrOpcode::CompositeConstructU32x4), {&probed, &zero, &zero, &zero});
+        }
     }
     IrValue& exec = ir.GetExec();
     (void)ir.Emit(IrOpcode::ImageWrite, IrOpcodeType(IrOpcode::ImageWrite), {resource, address, data, &exec}, addMemoryInfo(memory, inst.programCounter));
@@ -158,6 +164,12 @@ bool TranslationContext::imageSample(const RdnaInstruction& inst) {
     IrValue* sampler = getSamplerResource(memory);
     IrValue* address = makeImageAddress(inst, inst.source0);
     IrValue& result = ir.Emit(IrOpcode::ImageSampleRaw, IrOpcodeType(IrOpcode::ImageSampleRaw), {resource, sampler, address}, addMemoryInfo(memory, inst.programCounter));
+    if (const DebugProbe probe = DebugProbeConfig(); probe.enabled && probe.bySample && !probe.byInstruction && NextDebugProbeSample() == probe.sample) {
+        RdnaOperand target{};
+        target.kind = RdnaOperandKind::VectorRegister;
+        target.reg = 255u;
+        writeOperand(target, &ir.CompositeExtract(result, probe.component));
+    }
     const bool dref = (memory.imageSampleFlags & RdnaImageSampleFlagCompare) != 0u;
     if (dref && memory.dataBits != 16u) {
         IrValue& component = ir.CompositeExtract(result, 0u);

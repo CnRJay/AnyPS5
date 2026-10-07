@@ -3595,3 +3595,36 @@ VkImageView StorageTexture::View() const {
 }
 
 }
+
+namespace AgcDriver::Graphics {
+
+void StorageTexture::ProbeReadback(const char* path) {
+    const auto elementBytes = BytesPerElement(descriptor.format);
+    const auto bytes = static_cast<std::size_t>(descriptor.width) * descriptor.height * elementBytes;
+    Buffer staging(context, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    CommandBatch batch(context);
+    const auto commands = batch.Handle();
+    VkImageMemoryBarrier toSource{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    toSource.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+    toSource.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    toSource.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toSource.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toSource.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSource.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSource.image = image;
+    toSource.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    context.Resolved(&DeviceFunctions::cmdPipelineBarrier, "vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &toSource);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {descriptor.width, descriptor.height, 1};
+    context.Resolved(&DeviceFunctions::cmdCopyImageToBuffer, "vkCmdCopyImageToBuffer")(commands, image, VK_IMAGE_LAYOUT_GENERAL, staging.Handle(), 1, &copy);
+    batch.SubmitAndWait();
+    if (std::FILE* file = std::fopen(path, "wb")) {
+        const std::uint32_t header[3] = {descriptor.width, descriptor.height, descriptor.format};
+        std::fwrite(header, sizeof(header), 1, file);
+        std::fwrite(staging.Bytes().data(), 1, bytes, file);
+        std::fclose(file);
+    }
+}
+
+}
