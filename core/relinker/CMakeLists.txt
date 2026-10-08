@@ -194,6 +194,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_elf_offsets.py $<TARGET_FILE:relinker>)
         add_test(NAME dynamic_segment COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_dynamic_segment.py $<TARGET_FILE:relinker>)
+        add_test(NAME rela_size COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_rela_size.py $<TARGET_FILE:relinker>)
         add_test(NAME optional_plt COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_optional_plt.py $<TARGET_FILE:relinker>)
         add_test(NAME empty_tls COMMAND ${Python3_EXECUTABLE}
@@ -204,6 +206,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_tls_diagnostics.py $<TARGET_FILE:relinker>)
         add_test(NAME linux_load_alignment COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_linux_load_alignment.py $<TARGET_FILE:relinker>)
+        add_test(NAME linux_dynamic_strings COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_linux_dynamic_strings.py $<TARGET_FILE:relinker>)
         add_test(NAME executable_segments COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_executable_segments.py $<TARGET_FILE:relinker>)
         add_test(NAME linux_entry_argv COMMAND ${Python3_EXECUTABLE}
@@ -218,6 +222,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_guest_intel_trampolines.py $<TARGET_FILE:relinker>)
         add_test(NAME guest_tls COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_guest_tls.py $<TARGET_FILE:relinker>)
+        add_test(NAME guest_needed_modules COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_guest_needed_modules.py $<TARGET_FILE:relinker>)
         add_test(NAME guest_module_directories COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_guest_module_directories.py $<TARGET_FILE:relinker>)
         add_test(NAME guest_symbol_names COMMAND ${Python3_EXECUTABLE}
@@ -234,6 +240,10 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_input_magic.py $<TARGET_FILE:relinker>)
         add_test(NAME string_table_bounds COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_string_table_bounds.py $<TARGET_FILE:relinker>)
+        add_test(NAME call_registry COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_call_registry.py $<TARGET_FILE:relinker>)
+        add_test(NAME jmprel_table_bounds COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_jmprel_table_bounds.py $<TARGET_FILE:relinker>)
     else()
         message(STATUS "Python3 interpreter not found; skipping Python relinker tests")
     endif()
@@ -274,4 +284,16 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/include
     )
     add_test(NAME strict_nid_filter COMMAND strict_nid_filter_tests)
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        add_test_executable(to_intel_linux_stubs_tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/ToIntelLinuxStubsTests.cpp
+        )
+        add_test(NAME to_intel_linux_stubs COMMAND to_intel_linux_stubs_tests $<TARGET_FILE:relinker>)
+
+        add_test_executable(rela_bounds_tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/RelaBoundsTests.cpp
+        )
+        add_test(NAME rela_bounds COMMAND rela_bounds_tests $<TARGET_FILE:relinker>)
+    endif()
 endif()
