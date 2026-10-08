@@ -430,6 +430,8 @@ bool TranslationContext::emitMemory(const RdnaInstruction& inst) {
         return dsAtomic64(inst, IrOpcode::SharedAtomicFMax64, true);
     case RdnaOpcode::DsWrxchgRtnB64:
         return dsAtomic64(inst, IrOpcode::SharedAtomicSwap64, true);
+    case RdnaOpcode::DsCondxchg32RtnB64:
+        return dsAtomic64(inst, IrOpcode::SharedAtomicCondxchg64, true);
     case RdnaOpcode::DsNop:
         emitControlNop();
         return true;

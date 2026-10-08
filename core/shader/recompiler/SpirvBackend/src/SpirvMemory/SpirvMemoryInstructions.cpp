@@ -1252,12 +1252,14 @@ std::uint32_t LockedLdsUpdate(SpirvEmitterState& state, TUpdate&& update) {
 }
 
 template<typename TReplacement>
-std::uint32_t SharedAtomic64(SpirvValueEmitContext& ctx, const IrValue& inst, TReplacement&& replacement) {
+std::uint32_t SharedAtomic64(SpirvValueEmitContext& ctx, const IrValue& inst, TReplacement&& replacement, bool alignedPair = false) {
     auto& state = ctx.state;
     const auto& mem = SharedMemory(ctx, inst);
     return EmitValueOrDefaultIfCondition(state, ActiveArgument(ctx, inst), TypeU64(state), ConstantU64(state, 0u), [&]() {
         const auto resource = PrepareMemoryResourceAccess(state, mem);
-        const auto rawIndex = DwordIndex(ctx, inst, mem);
+        const auto rawIndex = alignedPair
+            ? Binary(state, spv::OpShiftRightLogical, TypeU32(state), Binary(state, spv::OpBitwiseAnd, TypeU32(state), ByteAddress(ctx, inst, mem), ConstantU32(state, 0xfff8u)), ConstantU32(state, 2u))
+            : DwordIndex(ctx, inst, mem);
         const auto low = EmitMemoryElementIndex(state, resource, rawIndex);
         const auto high = EmitMemoryElementIndex(state, resource, Binary(state, spv::OpIAdd, TypeU32(state), rawIndex, ConstantU32(state, 1u)));
         return EmitValueOrDefaultIfCondition(state, EmitMemoryElementInBounds(state, resource, high), TypeU64(state), ConstantU64(state, 0u), [&]() {
@@ -1313,8 +1315,8 @@ std::uint32_t SharedFloatMinMax64(SpirvValueEmitContext& ctx, const IrValue& ins
     });
 }
 
-std::uint32_t ScalarU64Constant(SpirvEmitterState& state, std::uint32_t value) {
-    return state.module.Constant(spv::OpConstant, TypeScalarU64(state), value, 0u);
+std::uint32_t ScalarU64Constant(SpirvEmitterState& state, std::uint64_t value) {
+    return state.module.Constant(spv::OpConstant, TypeScalarU64(state), static_cast<std::uint32_t>(value), static_cast<std::uint32_t>(value >> 32u));
 }
 
 }
@@ -1743,6 +1745,21 @@ std::uint32_t EmitSharedAtomicWrap32(SpirvValueEmitContext& ctx, const IrValue& 
 
 std::uint32_t EmitSharedAtomicSwap64(SpirvValueEmitContext& ctx, const IrValue& inst) {
     return SharedAtomic64Binary(ctx, inst, [](SpirvEmitterState&, std::uint32_t, std::uint32_t data) { return data; });
+}
+
+std::uint32_t EmitSharedAtomicCondxchg64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    const auto data = ScalarU64Argument(ctx, inst, 2u);
+    return SharedAtomic64(ctx, inst, [&](SpirvEmitterState& state, std::uint32_t old) {
+        const auto type = TypeScalarU64(state);
+        const auto writes = [&](std::uint64_t sign, std::uint64_t dword) {
+            const auto set = Binary(state, spv::OpINotEqual, TypeBool(state), Binary(state, spv::OpBitwiseAnd, type, data, ScalarU64Constant(state, sign)), ScalarU64Constant(state, 0u));
+            return Select(state, type, set, ScalarU64Constant(state, dword), ScalarU64Constant(state, 0u));
+        };
+        const auto mask = Binary(state, spv::OpBitwiseOr, type, writes(0x80000000ull, 0xffffffffull), writes(0x8000000000000000ull, 0xffffffff00000000ull));
+        const auto value = Binary(state, spv::OpBitwiseAnd, type, data, ScalarU64Constant(state, 0x7fffffff7fffffffull));
+        const auto kept = Binary(state, spv::OpBitwiseAnd, type, old, Unary(state, spv::OpNot, type, mask));
+        return Binary(state, spv::OpBitwiseOr, type, kept, Binary(state, spv::OpBitwiseAnd, type, value, mask));
+    }, true);
 }
 
 std::uint32_t EmitSharedAtomicIAdd64(SpirvValueEmitContext& ctx, const IrValue& inst) {

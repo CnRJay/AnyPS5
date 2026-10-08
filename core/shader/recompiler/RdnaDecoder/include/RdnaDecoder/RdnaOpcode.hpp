@@ -933,6 +933,7 @@ enum class RdnaOpcode : std::uint16_t {
     DsCmpstRtnF64,
     DsMinRtnF64,
     DsMaxRtnF64,
+    DsCondxchg32RtnB64,
     DsNop,
     DsReadU8D16,
     DsReadU8D16Hi,

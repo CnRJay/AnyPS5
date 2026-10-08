@@ -319,6 +319,7 @@ std::uint32_t EmitSharedAtomicCmpstF32(SpirvValueEmitContext& ctx, const IrValue
 std::uint32_t EmitSharedAtomicMskor32(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitSharedAtomicWrap32(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitSharedAtomicSwap64(SpirvValueEmitContext& ctx, const IrValue& inst);
+std::uint32_t EmitSharedAtomicCondxchg64(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitSharedAtomicIAdd64(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitSharedAtomicISub64(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitSharedAtomicRsub64(SpirvValueEmitContext& ctx, const IrValue& inst);
