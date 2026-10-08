@@ -38,24 +38,6 @@ int APS5_VABI sceAjmBatchJobEncode(AjmBatchInfo* info, uint32_t instance, const 
  return 0;
 }
 
-int APS5_VABI sceAjmBatchJobGetResampleInfo(AjmBatchInfo* info, uint32_t instance, void* result) {
- (void)info;
- (void)instance;
- (void)result;
- AjmStub(__func__);
- return 0;
-}
-
-int APS5_VABI sceAjmBatchJobSetResampleParameters(AjmBatchInfo* info, uint32_t instance, float ratio, uint32_t flags, void* result) {
- (void)info;
- (void)instance;
- (void)ratio;
- (void)flags;
- (void)result;
- AjmStub(__func__);
- return 0;
-}
-
 int APS5_VABI sceAjmBatchJobSetResampleParametersEx(AjmBatchInfo* info, uint32_t instance, float ratio_start, float ratio_change_per_sample, uint32_t flags, void* result) {
  (void)info;
  (void)instance;
@@ -71,6 +53,18 @@ const char* APS5_VABI sceAjmStrError(int error) {
  (void)error;
  AjmStub(__func__);
  return nullptr;
+}
+
+APS5_EXPORT("Z4HDpe1ZEa4", sceAjmWVorbisUnknown00);
+int APS5_VABI sceAjmWVorbisUnknown00(void) {
+    NotImplemented_nid_no_patch("Z4HDpe1ZEa4");
+    return 0;
+}
+
+APS5_EXPORT("oXShHcqMcX0", sceAjmWVorbisUnknown01);
+int APS5_VABI sceAjmWVorbisUnknown01(void) {
+    NotImplemented_nid_no_patch("oXShHcqMcX0");
+    return 0;
 }
 
 }

@@ -347,6 +347,33 @@ int APS5_VABI sceNgs2VoiceGetState(uintptr_t voice_handle, Ngs2VoiceState* state
     }
 }
 
+int APS5_VABI sceNgs2VoiceGetPortInfo(uintptr_t voice_handle, uint32_t port, Ngs2VoicePortInfo* info, size_t info_size) {
+    if (info == nullptr) return SCE_NGS2_ERROR_INVALID_OUT_ADDRESS;
+    if (info_size != sizeof(Ngs2VoicePortInfo)) return SCE_NGS2_ERROR_INVALID_OUT_SIZE;
+    std::lock_guard lock(Ngs2Mutex());
+    auto& voice = CheckedVoice(voice_handle);
+    const auto& source = PortAt(voice, port);
+    *info = {};
+    info->matrix_id = source.matrix;
+    info->volume = source.volume;
+    info->dest_handle = reinterpret_cast<Ngs2Handle>(source.dest);
+    return SCE_NGS2_OK;
+}
+
+int APS5_VABI sceNgs2VoiceQueryInfo(uintptr_t voice_handle, uint32_t info_id, void* info, size_t info_size) {
+    if (info == nullptr) return SCE_NGS2_ERROR_INVALID_OUT_ADDRESS;
+    std::lock_guard lock(Ngs2Mutex());
+    const auto& voice = CheckedVoice(voice_handle);
+    switch (info_id) {
+        case SCE_NGS2_VOICE_INFO_CHANNELS: {
+            if (info_size != sizeof(Ngs2VoiceChannelsInfo)) return SCE_NGS2_ERROR_INVALID_OUT_SIZE;
+            *static_cast<Ngs2VoiceChannelsInfo*>(info) = {voice.channels, 0};
+            return SCE_NGS2_OK;
+        }
+        default: throw std::runtime_error("NGS2: voice info " + Ngs2Hex(info_id) + " is not implemented");
+    }
+}
+
 int APS5_VABI sceNgs2VoiceGetStateFlags(uintptr_t voice_handle, uint32_t* state_flags) {
     if (state_flags == nullptr) return SCE_NGS2_ERROR_INVALID_OUT_ADDRESS;
     std::lock_guard lock(Ngs2Mutex());
