@@ -781,8 +781,8 @@ void cmaskTests() {
     Require(texels(0x5a5a5a5au) && cmaskIs(0xff), "a pass over an expanded CMASK changed the texels");
     cmaskMemory.fill(0);
     cmaskMemory[cmaskMemory.size() - 1] = 0xff;
-    AgcDriver::Graphics::RunColorMetadataPass(context, *pass);
-    Require(texels(0x5a5a5a5au) && cmaskMemory[0] == 0x00 && cmaskMemory[cmaskMemory.size() - 1] == 0xff, "a pass over a mixed CMASK changed the texels or the CMASK");
+    expectFailure([&] { AgcDriver::Graphics::RunColorMetadataPass(context, *pass); }, "not all fast-cleared or all expanded");
+    Require(texels(0x5a5a5a5au), "a refused pass changed the texels");
 
     queue.context[0x31c] |= 0x10000000;
     const auto keysAddress = reinterpret_cast<std::uintptr_t>(dccKeys.data());
