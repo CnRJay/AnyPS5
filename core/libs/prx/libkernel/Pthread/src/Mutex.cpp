@@ -1,5 +1,6 @@
 #include "../include/Pthread.hpp"
 #include "../include/Mutex.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
 #include "prx/libkernel/Time/include/TimedWait.hpp"
 #include <atomic>
 #include <chrono>
@@ -114,7 +115,7 @@ int APS5_VABI scePthreadMutexattrSettype(PthreadMutexattr* attr, int type) {
     case 2: (*attr)->type = MutexType::Recursive; break;
     case 3: (*attr)->type = MutexType::Normal; break;
     case 4: (*attr)->type = MutexType::Adaptive; break;
-    default: throw std::invalid_argument("Invalid mutex type");
+    default: return SCE_KERNEL_ERROR_EINVAL;
     }
     return 0;
 }

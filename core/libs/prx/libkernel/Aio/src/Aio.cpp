@@ -306,4 +306,12 @@ int APS5_VABI sceKernelAioWaitRequest(int32_t id, int32_t* state, uint32_t* usec
     }
 }
 
+int APS5_VABI sceKernelAioPollRequests(int32_t* id, int32_t num, int32_t* state) {
+    const int error = ValidateIds(id, num, state, "sceKernelAioPollRequests");
+    if (error != 0) return error;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    for (int32_t i = 0; i < num; ++i) state[i] = g_states[id[i]];
+    return 0;
+}
+
 }

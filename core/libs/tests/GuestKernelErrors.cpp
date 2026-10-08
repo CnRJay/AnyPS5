@@ -83,6 +83,8 @@ int main() {
     PthreadMutexattr attr = nullptr;
     Require(scePthreadMutexattrInit(&attr) == SCE_OK);
     Require(scePthreadMutexattrSettype(&attr, MUTEX_TYPE_ERRORCHECK) == SCE_OK);
+    Require(scePthreadMutexattrSettype(&attr, 0) == SCE_KERNEL_ERROR_EINVAL);
+    Require(scePthreadMutexattrSettype(&attr, 5) == SCE_KERNEL_ERROR_EINVAL);
     Require(scePthreadMutexattrSetprotocol(&attr, PRIO_NONE) == SCE_OK);
     Require(scePthreadMutexattrSetprotocol(&attr, PRIO_INHERIT) == SCE_OK);
     bool protectionRejected = false;
