@@ -277,10 +277,10 @@ private:
         // The greatest start of a descriptor view merged into the region (0: none past `begin`).
         std::uint64_t lastView = 0;
         // End of the copy's buffer when shorter than the region (0: it covers the region): a
-        // sparse region bound through descriptors only is copied up to its last backed byte (and
-        // its last view's start), and its views are clamped there. The shader bounds every
-        // descriptor access by the bound range, so the cut-off part reads as zeros and takes no
-        // stores, as the uncommitted pages it stands for.
+        // sparse region is copied up to its last backed byte (and its last view's start), and its
+        // views and BDA range are clamped there. The shader bounds every descriptor access by the
+        // bound range, so the cut-off part reads as zeros and takes no stores, as the uncommitted
+        // pages it stands for; an address past the BDA range faults.
         std::uint64_t bufferEnd = 0;
         // Set when the region is served by an image mirror: nothing is copied; writable mirrors are
         // written back by comparing with the mirror's shadow. Kept alive here for recorded work.

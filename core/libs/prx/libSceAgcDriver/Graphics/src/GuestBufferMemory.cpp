@@ -2669,8 +2669,9 @@ void GuestBufferMemory::copyRegion(Region& region, bool addressable) {
     const auto allocateStart = std::chrono::steady_clock::now();
     // A GPU heap reserved whole and committed on demand (a 4 GiB reservation with 528 MiB backed)
     // bound through a descriptor: the copy stops at the last backed byte, past every view's start
-    // (see Region::bufferEnd). Address-based builds map the whole region and keep it whole.
-    if (region.sparse && !addressable && region.buffer == nullptr && (region.hostBacked || region.writable)) {
+    // (see Region::bufferEnd). An address-based build maps only the copy (addressRange), so a pointer
+    // past it misses the BDA table and faults, as on uncommitted pages.
+    if (region.sparse && region.buffer == nullptr && (region.hostBacked || region.writable)) {
         const auto backedEnd = region.backed.empty() ? region.begin : region.backed.back().second;
         const auto viewEnd = std::max(region.lastView, region.begin) + 4u;
         constexpr std::uint64_t granule = 256;
@@ -2914,7 +2915,8 @@ ShaderRecompiler::BdaAbi::Range GuestBufferMemory::addressRange(const Region& re
     const auto address = region.direct != nullptr ? region.direct->address + (region.begin - region.direct->base) : region.mirror != nullptr ? region.mirror->buffer->DeviceAddress() + (region.begin - region.mirror->base) : region.buffer->DeviceAddress();
     Require(region.end - region.begin <= std::numeric_limits<std::uint64_t>::max() - address, "GPU address range overflow");
     const auto permissions = ShaderRecompiler::BdaAbi::Read | (region.direct != nullptr && region.writable ? ShaderRecompiler::BdaAbi::Write : 0u);
-    return {region.begin, region.end, address, permissions, 0};
+    const bool cut = region.direct == nullptr && region.mirror == nullptr && region.bufferEnd != 0;
+    return {region.begin, cut ? region.bufferEnd : region.end, address, permissions, 0};
 }
 
 std::vector<ShaderRecompiler::BdaAbi::Range> GuestBufferMemory::AddressRanges() const {
