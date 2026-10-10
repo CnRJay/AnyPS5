@@ -316,6 +316,39 @@ int main(int argc, char** argv) {
         return failures == 0 ? 0 : 1;
     }
     const std::vector<Program> programs{
+        {"loop selection arms that leave the iteration rejoin before a join the enclosing selection shares", R"(
+  v_mov_b32 v1, 0
+  s_mov_b32 s8, 0
+loop:
+  s_cmp_eq_u32 s8, s2
+  s_cbranch_scc1 join
+  v_cmp_gt_u32 vcc, 8, v0
+  s_cbranch_vccz arm
+  v_add_nc_u32 v1, 1, v1
+  v_cmp_gt_u32 vcc, 16, v0
+  s_cbranch_vccz away
+arm:
+  v_add_nc_u32 v1, 2, v1
+  v_cmp_gt_u32 vcc, 4, v0
+  s_cbranch_vccz aside
+join:
+  v_add_nc_u32 v1, 3, v1
+  s_cmp_lt_u32 s8, 4
+  s_cbranch_scc0 done
+  s_branch latch
+away:
+  v_add_nc_u32 v1, 4, v1
+  s_branch latch
+aside:
+  v_add_nc_u32 v1, 5, v1
+latch:
+  s_add_u32 s8, s8, 1
+  s_branch loop
+done:
+  buffer_store_dword v1, off, s[0:3], 0
+  s_endpgm)",
+         Store({0x7e020280u, 0xbe880380u, 0xbf060208u, 0xbf850008u, 0x7d880088u, 0xbf860003u, 0x4a020281u, 0x7d880090u, 0xbf860007u, 0x4a020282u, 0x7d880084u,
+                0xbf860006u, 0x4a020283u, 0xbf0a8408u, 0xbf840006u, 0xbf820003u, 0x4a020284u, 0xbf820001u, 0x4a020285u, 0x80088108u, 0xbf82ffedu}), Split::None},
         {"both selection arms leave through a shared loop exit tail", R"(
   v_mov_b32 v1, 0
   s_mov_b32 s8, 0
