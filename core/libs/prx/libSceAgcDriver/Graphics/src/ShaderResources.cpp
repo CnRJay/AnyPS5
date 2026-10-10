@@ -2665,12 +2665,25 @@ std::size_t ShaderResources::addGuestBuffer(std::span<const std::uint32_t> words
     const ShaderRecompiler::ShaderBufferResource descriptor{{words[0], words[1], words[2], words[3]}};
     Require(descriptor.Type() == 0u, "buffer descriptor uses an unsupported type");
     const auto address = descriptor.Base48();
-    const auto byteSize = descriptor.GetSize();
+    auto byteSize = descriptor.GetSize();
     if (byteSize == 0 || address == 0) {
         allocations.push_back({0, EmptyBufferBytes, false, nullptr, ShaderRecompiler::DescriptorRole::GuestBuffers, false});
         return allocations.size() - 1;
     }
-    Require(byteSize <= context.limits.maxStorageBufferRange, "shader buffer exceeds descriptor range limit");
+    if (byteSize > context.limits.maxStorageBufferRange) {
+        const auto limit = static_cast<std::size_t>(context.limits.maxStorageBufferRange) & ~std::size_t{3};
+        const auto committed = GuestMemory::CommittedRanges(address, limit, written);
+        if (!committed.empty() && committed.front().first == address) {
+            std::uint64_t end = committed.front().second;
+            for (std::size_t index = 1; index < committed.size() && committed[index].first == end; ++index) end = committed[index].second;
+            byteSize = (end - address) & ~std::uint64_t{3};
+        }
+    }
+    if (byteSize > context.limits.maxStorageBufferRange) {
+        char text[192];
+        std::snprintf(text, sizeof(text), "shader buffer 0x%llx+0x%llx (stride %u) exceeds the descriptor range limit 0x%llx", static_cast<unsigned long long>(address), static_cast<unsigned long long>(byteSize), static_cast<unsigned>(descriptor.Stride()), static_cast<unsigned long long>(context.limits.maxStorageBufferRange));
+        Require(false, text);
+    }
     Require(byteSize <= std::numeric_limits<std::size_t>::max(), "shader buffer size exceeds host address space");
     const auto size = static_cast<std::size_t>(byteSize);
     Require(target == nullptr || !overlap(address, size, target->address, target->bytes), "shader buffer aliases the render target");

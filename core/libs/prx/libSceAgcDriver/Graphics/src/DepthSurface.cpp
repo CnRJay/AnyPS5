@@ -304,6 +304,11 @@ void NoteDepthStorage(const Context& context, const std::shared_ptr<StorageTextu
     const bool depthPlane = target.address == resource.baseAddress;
     const auto format = StorageFormatForGuest(context, resource.format);
     const auto expected = !depthPlane ? VK_FORMAT_R8_UINT : d16 ? VK_FORMAT_R16_UNORM : VK_FORMAT_R32_SFLOAT;
+    if (mip == 0 && resource.baseArray == 0 && (resource.width != target.extent.width || resource.height != target.extent.height)) {
+        std::fprintf(stderr, "[gpu] depth surface 0x%llx (%ux%u) reused as a %ux%u storage image of vk format %d: the depth surface is forgotten\n", static_cast<unsigned long long>(target.address), target.extent.width, target.extent.height, resource.width, resource.height, static_cast<int>(format));
+        surfaces().erase(std::next(found).base());
+        return;
+    }
     if (format != expected || mip != 0 || resource.dimension != TextureDimension::k2D || resource.baseArray != 0 || resource.width != target.extent.width || resource.height != target.extent.height) {
         char text[320];
         std::snprintf(text, sizeof(text), "AGC graphics: storage image access to the %s plane of depth surface 0x%llx (%ux%u, vk format %d) as a %ux%u image of vk format %d, mip %u, dimension %d, slice %u is not implemented", depthPlane ? "depth" : "stencil", static_cast<unsigned long long>(target.address), target.extent.width, target.extent.height, static_cast<int>(target.format), resource.width, resource.height, static_cast<int>(format), mip, static_cast<int>(resource.dimension), resource.baseArray);
