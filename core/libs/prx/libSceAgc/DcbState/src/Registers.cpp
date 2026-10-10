@@ -28,8 +28,10 @@ std::uint32_t* APS5_VABI sceAgcDcbSetCxRegistersIndirect(CommandBuffer* buf, con
     return Agc::Command::WriteIndirectRegisters(buf, 0x9fu, regs, numRegs, __func__);
 }
 
+// The indirect packet is five dwords whatever the count; titles call these with no count set (the
+// argument register holds leftovers such as 0xf5f5039c), so it is not checked.
 std::uint32_t APS5_VABI sceAgcDcbSetCxRegistersIndirectGetSize(std::uint32_t numRegs) {
-    Agc::Command::CheckBits(numRegs, 0x3fffu, __func__);
+    static_cast<void>(numRegs);
     return 20;
 }
 
@@ -46,7 +48,7 @@ std::uint32_t* APS5_VABI sceAgcDcbSetShRegistersIndirect(CommandBuffer* buf, con
 }
 
 std::uint32_t APS5_VABI sceAgcDcbSetShRegistersIndirectGetSize(std::uint32_t numRegs) {
-    Agc::Command::CheckBits(numRegs, 0x3fffu, __func__);
+    static_cast<void>(numRegs);
     return 20;
 }
 
@@ -63,7 +65,7 @@ std::uint32_t* APS5_VABI sceAgcDcbSetUcRegistersIndirect(CommandBuffer* buf, con
 }
 
 std::uint32_t APS5_VABI sceAgcDcbSetUcRegistersIndirectGetSize(std::uint32_t numRegs) {
-    Agc::Command::CheckBits(numRegs, 0x3fffu, __func__);
+    static_cast<void>(numRegs);
     return 20;
 }
 
