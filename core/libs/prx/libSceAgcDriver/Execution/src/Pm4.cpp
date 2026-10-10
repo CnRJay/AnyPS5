@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/PreciseWait.hpp"
 #include <algorithm>
@@ -642,7 +643,19 @@ std::array<std::uint32_t, 5> ReadDispatchArguments(std::uint64_t arguments, std:
     // Named for the [hooksync] attribution (the read goes through the flush hook).
     const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::IndirectArguments);
     GuestMemory::Read(arguments, std::as_writable_bytes(std::span(result).subspan(1, 3)), 4);
-    if (result[2] > 65535u || result[3] > 65535u) std::fprintf(stderr, "[probe-indirect] arguments 0x%llx read %ux%ux%u\n", static_cast<unsigned long long>(arguments), result[1], result[2], result[3]);
+    if (result[1] > (1u << 22u) || result[2] > 65535u || result[3] > 65535u) {
+        bool pending = false;
+        {
+            std::lock_guard gpu(GuestMemory::GpuMutex());
+            if (auto* recorder = Graphics::Recorder::Active(); recorder != nullptr) {
+                pending = recorder->PendingWriteOverlaps(arguments, 12);
+                recorder->Sync();
+            }
+        }
+        std::array<std::uint32_t, 3> again{};
+        GuestMemory::Read(arguments, std::as_writable_bytes(std::span(again)), 4);
+        std::fprintf(stderr, "[probe-indirect] arguments 0x%llx read %ux%ux%u (pending write %d), after a full sync %ux%ux%u\n", static_cast<unsigned long long>(arguments), result[1], result[2], result[3], pending ? 1 : 0, again[0], again[1], again[2]);
+    }
     return result;
 }
 

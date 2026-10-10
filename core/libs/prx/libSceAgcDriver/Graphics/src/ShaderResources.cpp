@@ -2671,13 +2671,9 @@ std::size_t ShaderResources::addGuestBuffer(std::span<const std::uint32_t> words
         return allocations.size() - 1;
     }
     if (byteSize > context.limits.maxStorageBufferRange) {
-        const auto limit = static_cast<std::size_t>(context.limits.maxStorageBufferRange) & ~std::size_t{3};
-        const auto committed = GuestMemory::CommittedRanges(address, limit, written);
-        if (!committed.empty() && committed.front().first == address) {
-            std::uint64_t end = committed.front().second;
-            for (std::size_t index = 1; index < committed.size() && committed[index].first == end; ++index) end = committed[index].second;
-            byteSize = (end - address) & ~std::uint64_t{3};
-        }
+        const auto limit = static_cast<std::uint64_t>(context.limits.maxStorageBufferRange) & ~std::uint64_t{3};
+        const auto committed = GuestMemory::CommittedRanges(address, static_cast<std::size_t>(limit), written);
+        if (!committed.empty()) byteSize = std::min(limit, ((committed.back().second - address) + 3u) & ~std::uint64_t{3});
     }
     if (byteSize > context.limits.maxStorageBufferRange) {
         char text[192];
