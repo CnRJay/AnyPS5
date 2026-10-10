@@ -2527,9 +2527,16 @@ void verifyGuardedNullPointers() {
         static_cast<void>(ValidateAndOptimizeSpirv(result->spirv, vertex.request.target.vulkanVersion, vertex.request.target.spirvVersion));
 #endif
     }
+    // A null user-data pointer: hardware faults on a read through it, so a program that runs reads
+    // none (it branches around them); they read as zero, and the result is kept out of the caches.
     NestedRequest rootless(branchCode, nullptr);
     AgcDriver::ShaderMemory rootlessMemory({});
-    expectFailure([&] { static_cast<void>(rootlessMemory.Capture(rootless.request)); }, "null or misaligned address", "guarded pointer: a null user-data pointer was accepted");
+    const auto rootlessCapture = rootlessMemory.Capture(rootless.request);
+    require(rootlessCapture->snapshot.nullRootReads != 0u && GuardRecords(*rootlessCapture), "guarded pointer: reads through a null user-data pointer were not counted");
+    require(std::all_of(rootlessCapture->snapshot.buffers.begin(), rootlessCapture->snapshot.buffers.end(), [](const DescriptorValue& value) { return std::all_of(value.dwords.begin(), value.dwords.end(), [](std::uint32_t word) { return word == 0u; }); }), "guarded pointer: a V# read through a null user-data pointer is not zero");
+    rootless.request.context.memory = rootlessMemory.Regions();
+    const auto rootlessResult = Recompile(rootless.request, *rootlessCapture);
+    require(rootlessResult->poisonedSrtReads >= rootlessCapture->snapshot.nullRootReads, "guarded pointer: a capture through a null user-data pointer is cacheable");
     point(0u);
 #ifdef _WIN32
     VirtualFree(reserved, 0, MEM_RELEASE);
@@ -2788,8 +2795,12 @@ int main(int argc, char** argv) {
         request.context.memory = {};
         const std::array<std::uint32_t, 2> nullUserData{};
         request.context.userData = nullUserData;
-        AgcDriver::ShaderMemory invalid({});
-        expectFailure([&] { invalid.Capture(request); }, "null or misaligned address", "null user-data pointer was accepted");
+        // Reads through a null user-data pointer read as zero, counted so the result is not cached.
+        AgcDriver::ShaderMemory nullRoot({});
+        const auto nullRootCapture = nullRoot.Capture(request);
+        require(nullRootCapture->snapshot.nullRootReads != 0u, "reads through a null user-data pointer were not counted");
+        request.context.memory = nullRoot.Regions();
+        require(Recompile(request, *nullRootCapture)->poisonedSrtReads >= nullRootCapture->snapshot.nullRootReads, "a capture through a null user-data pointer is cacheable");
         std::cout << "Shader memory capture, strict validation and deterministic replay passed\n";
         return 0;
     } catch (const std::exception& error) {

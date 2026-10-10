@@ -42,6 +42,8 @@ struct ResourceSnapshot {
     std::vector<std::uint32_t> userData;
     UniformFill uniformFill;
     std::vector<SrtReadPoison> srtPoison;
+    // Flat SRT words read as zero through a null user-data pointer (see Evaluator::ReportNullRootReads).
+    std::uint32_t nullRootReads = 0;
 };
 
 struct UniformFillPlan {
