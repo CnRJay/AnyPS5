@@ -30,7 +30,11 @@ void CheckAddress(std::uint64_t address, std::uint32_t alignment, const char* fu
 }
 
 std::uint32_t Header(std::uint32_t opcode, std::uint32_t count, std::uint32_t flags) {
-    Require(count >= 2 && count <= 0x4001u && opcode <= 0xffu && flags <= 0xffu, __func__, "invalid packet header");
+    if (!(count >= 2 && count <= 0x4001u && opcode <= 0xffu && flags <= 0xffu)) {
+        char reason[96];
+        std::snprintf(reason, sizeof(reason), "invalid packet header (opcode 0x%x, %u dwords, flags 0x%x)", opcode, count, flags);
+        Require(false, __func__, reason);
+    }
     return 0xc0000000u | ((count - 2u) << 16u) | (opcode << 8u) | flags;
 }
 
@@ -85,7 +89,8 @@ void ValidatePacket(const std::uint32_t* packet, std::uint32_t opcode, std::uint
 }
 
 std::uint32_t* WriteNop(CommandBuffer* buffer, std::uint32_t count, const char* function) {
-    const auto header = Header(0x10u, count);
+    // A one-dword NOP is the header alone, with the count field 0x3fff.
+    const auto header = count == 1 ? 0xffff1000u : Header(0x10u, count);
     auto* packet = Allocate(buffer, count, function);
     packet[0] = header;
     std::fill_n(packet + 1, count - 1u, 0u);
