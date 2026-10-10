@@ -209,6 +209,12 @@ int APS5_VABI sceNpUnregisterPremiumEventCallback(void) {
     return 0;
 }
 
+int APS5_VABI sceNpManagerUnknownZVZ(char* buffer) {
+    buffer[0] = '\0';
+    return 0;
+}
+APS5_EXPORT("ZVZ++68nNI8", sceNpManagerUnknownZVZ);
+
 int APS5_VABI sceNpGetUserIdByAccountId() {
     NotImplemented_nid_no_patch(__func__);
     return 0;
