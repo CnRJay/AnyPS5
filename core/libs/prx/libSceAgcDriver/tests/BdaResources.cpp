@@ -569,6 +569,69 @@ void gpuMappingTests(const Context& context) {
     ::operator delete(gpu, std::align_val_t{bytes});
 }
 
+std::byte* reserveSparse(std::size_t reserved, std::size_t committed) {
+#ifdef _WIN32
+    auto* block = static_cast<std::byte*>(VirtualAlloc(nullptr, reserved, MEM_RESERVE, PAGE_NOACCESS));
+    Require(block != nullptr && VirtualAlloc(block, committed, MEM_COMMIT, PAGE_READWRITE) != nullptr, "cannot reserve the sparse heap");
+#else
+    void* mapped = mmap(nullptr, reserved, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    Require(mapped != MAP_FAILED && mprotect(mapped, committed, PROT_READ | PROT_WRITE) == 0, "cannot reserve the sparse heap");
+    auto* block = static_cast<std::byte*>(mapped);
+#endif
+    return block;
+}
+
+void releaseSparse(std::byte* block, std::size_t reserved) {
+#ifdef _WIN32
+    static_cast<void>(reserved);
+    VirtualFree(block, 0, MEM_RELEASE);
+#else
+    munmap(block, reserved);
+#endif
+}
+
+void sparseHeapTests(const Context& context, const BdaTestAccess& access) {
+    constexpr std::size_t reserved = 64u << 20u;
+    constexpr std::size_t committed = 65536;
+    auto* block = reserveSparse(reserved, committed);
+    std::memset(block, 0x5a, committed);
+    const auto base = reinterpret_cast<std::uintptr_t>(block);
+    access.limitMemory(4u << 20u);
+    {
+        GuestBufferMemory memory(context);
+        memory.AddWritable(base, reserved);
+        memory.Upload(false);
+        std::uint32_t adjustment = 0;
+        const auto view = memory.Descriptor(base, reserved, adjustment);
+        Require(adjustment == 0 && view.range == committed, "a sparse heap view is not cut at its last committed byte");
+        const auto bytes = access.bytes(view.buffer);
+        Require(bytes.size() < reserved && bytes[view.offset + committed - 1] == std::byte{0x5a}, "a sparse heap was not copied up to its last committed byte");
+        bytes[view.offset + 8] = std::byte{0x77};
+        memory.WriteBack();
+        Require(block[8] == std::byte{0x77}, "a store to a cut sparse heap was not written back");
+    }
+    {
+        constexpr std::size_t late = 1u << 20u;
+        GuestBufferMemory memory(context);
+        memory.AddWritable(base, reserved);
+        memory.AddReadable(base + late, 16);
+        memory.Upload(true);
+        std::uint32_t adjustment = 0;
+        const auto view = memory.Descriptor(base + late, 16, adjustment);
+        Require(view.range == 16 + adjustment, "a view in the uncommitted part of a sparse heap is not bound");
+        const auto bytes = access.bytes(view.buffer);
+        const auto whole = memory.Descriptor(base, reserved, adjustment);
+        Require(whole.buffer == view.buffer && bytes.size() >= whole.offset + late + 16, "a view in the uncommitted part of a sparse heap has another owner");
+        Require(bytes[whole.offset + committed - 1] == std::byte{0x5a} && std::all_of(bytes.begin() + static_cast<std::ptrdiff_t>(whole.offset + committed), bytes.begin() + static_cast<std::ptrdiff_t>(whole.offset + late + 16), [](std::byte byte) { return byte == std::byte{}; }), "the uncommitted part of a cut sparse heap does not read as zeros");
+        Require(whole.range == late + 256, "a sparse heap copy does not end past its last view's start");
+        const auto ranges = memory.AddressRanges();
+        Require(ranges.size() == 1 && ranges[0].begin == base && ranges[0].end == base + late + 256, "the BDA range of a cut sparse heap is not clamped to its copy");
+        memory.WriteBack();
+    }
+    access.limitMemory(std::nullopt);
+    releaseSparse(block, reserved);
+}
+
 void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
     alignas(64) std::array<std::uint32_t, 16> guest{};
     guest[0] = 123;
@@ -729,6 +792,7 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
     importWatchTests();
     importedFreshTests(context);
     gpuMappingTests(context);
+    sparseHeapTests(context, access);
     Require(AddressCopyOverflow({{0x1000, 0x3000, 0x2000, "uncommitted pages"}}, 0x2000).empty(), "copies within the limit were refused");
     const auto copies = AddressCopyOverflow({{0x1000, 0x2000, 0x1000, "not mirrored"}, {0x10000, 0x30000, 0x18000, "uncommitted pages"}}, 0x2000);
     Require(!copies.empty() && copies.find("0x10000+0x20000 (0.1 MiB committed, uncommitted pages)") < copies.find("0x1000+0x1000"), "the copy limit does not name the largest copy first");

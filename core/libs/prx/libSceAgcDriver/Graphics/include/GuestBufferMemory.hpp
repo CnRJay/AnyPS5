@@ -274,6 +274,8 @@ private:
         // memory; the rest reads as zeros and is never stored.
         bool sparse = false;
         std::vector<std::pair<std::uint64_t, std::uint64_t>> backed {};
+        std::uint64_t lastView = 0;
+        std::uint64_t bufferEnd = 0;
         // Set when the region is served by an image mirror: nothing is copied; writable mirrors are
         // written back by comparing with the mirror's shadow. Kept alive here for recorded work.
         std::shared_ptr<ImageMirror> mirror {};

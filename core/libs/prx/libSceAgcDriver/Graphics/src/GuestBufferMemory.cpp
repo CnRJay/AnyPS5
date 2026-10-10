@@ -2016,6 +2016,7 @@ void GuestBufferMemory::addDescriptorRegion(std::uint64_t address, std::size_t b
     Region region{begin, end, true, {}, nullptr};
     region.atomic = atomic;
     region.swept = swept;
+    region.lastView = begin;
     auto committed = GuestMemory::DescribeCommitted(begin, static_cast<std::size_t>(end - begin));
     if (!committed.whole) {
         // A GPU heap bound whole while the guest commits its pages on demand, or a descriptor left
@@ -2339,6 +2340,7 @@ void GuestBufferMemory::UploadPrepare(bool addressable) {
                 previous.hostBacked = true;
             }
             mergeBacked(previous, region);
+            previous.lastView = std::max({previous.lastView, region.lastView, region.begin});
             if (region.end > previous.end) previous.direct = nullptr;
             previous.atomic = previous.atomic || region.atomic;
             previous.swept = previous.swept || region.swept;
@@ -2665,8 +2667,17 @@ void GuestBufferMemory::copyRegion(Region& region, bool addressable) {
         }
     }
     const auto allocateStart = std::chrono::steady_clock::now();
+    if (region.sparse && region.buffer == nullptr && (region.hostBacked || region.writable)) {
+        const auto backedEnd = region.backed.empty() ? region.begin : region.backed.back().second;
+        const auto viewEnd = std::max(region.lastView, region.begin) + 4u;
+        constexpr std::uint64_t granule = 256;
+        const auto extent = std::max(backedEnd, viewEnd) - region.begin;
+        const auto end = region.begin + std::min<std::uint64_t>((extent + granule - 1) / granule * granule, bytes);
+        region.bufferEnd = end < region.end ? end : 0;
+    }
+    const auto allocated = region.bufferEnd != 0 ? region.bufferEnd - region.begin : bytes;
     // A buffer made by UploadPrepare for a GPU copy that fell back here (its import went) is kept.
-    if (region.buffer == nullptr) region.buffer = std::make_shared<Buffer>(context, static_cast<std::size_t>(bytes), usage);
+    if (region.buffer == nullptr) region.buffer = std::make_shared<Buffer>(context, static_cast<std::size_t>(allocated), usage);
     const auto readStart = std::chrono::steady_clock::now();
     if (profile) allocateUs.fetch_add(microsecondsSince(allocateStart), std::memory_order_relaxed);
     // Named for the [hooksync] attribution: the reads below go through the flush hook.
@@ -2680,11 +2691,18 @@ void GuestBufferMemory::copyRegion(Region& region, bool addressable) {
             if (written) region.uploaded.assign(region.buffer->Bytes().begin(), region.buffer->Bytes().end());
         } else {
             // `uploaded` holds the backed pieces back to back.
+            const auto target = region.buffer->Bytes().first(static_cast<std::size_t>(allocated));
+            const bool zeroGaps = region.bufferEnd != 0;
+            std::size_t cursor = 0;
             for (const auto& [first, last] : region.backed) {
-                const auto piece = region.buffer->Bytes().subspan(static_cast<std::size_t>(first - region.begin), static_cast<std::size_t>(last - first));
+                const auto at = static_cast<std::size_t>(first - region.begin);
+                if (zeroGaps && at > cursor) std::memset(target.data() + cursor, 0, at - cursor);
+                const auto piece = target.subspan(at, static_cast<std::size_t>(last - first));
                 GuestMemory::Read(first, piece);
                 if (written) region.uploaded.insert(region.uploaded.end(), piece.begin(), piece.end());
+                cursor = at + piece.size();
             }
+            if (zeroGaps && cursor < target.size()) std::memset(target.data() + cursor, 0, target.size() - cursor);
         }
     }
     else std::memcpy(region.buffer->Bytes().data(), region.snapshot.data(), region.snapshot.size());
@@ -2869,8 +2887,13 @@ VkDescriptorBufferInfo GuestBufferMemory::Descriptor(std::uint64_t address, std:
     Require(context.limits.minStorageBufferOffsetAlignment != 0, "no storage buffer offset alignment");
     Require(base % 4 == 0, "a guest buffer view in a GPU owner that does not start at a DWORD boundary is not implemented");
     adjustment = static_cast<std::uint32_t>(offset % std::max<VkDeviceSize>(context.limits.minStorageBufferOffsetAlignment, 4));
-    const auto range = ViewBytes(bytes, adjustment);
-    const auto end = region.direct != nullptr ? region.direct->base + region.direct->bytes : region.end;
+    auto range = ViewBytes(bytes, adjustment);
+    const bool cut = region.direct == nullptr && region.mirror == nullptr && region.bufferEnd != 0;
+    const auto end = region.direct != nullptr ? region.direct->base + region.direct->bytes : cut ? region.bufferEnd : region.end;
+    if (cut) {
+        Require(address - adjustment < end, "guest buffer view starts past its copy");
+        range = std::min<std::uint64_t>(range, end - (address - adjustment));
+    }
     Require(address - adjustment + range <= end, "guest buffer view exceeds its GPU owner");
     Require(range <= context.limits.maxStorageBufferRange, "guest buffer view exceeds descriptor range limit");
     const auto handle = region.direct != nullptr ? region.direct->buffer : region.mirror != nullptr ? region.mirror->buffer->Handle() : region.buffer->Handle();
@@ -2886,7 +2909,8 @@ ShaderRecompiler::BdaAbi::Range GuestBufferMemory::addressRange(const Region& re
     const auto address = region.direct != nullptr ? region.direct->address + (region.begin - region.direct->base) : region.mirror != nullptr ? region.mirror->buffer->DeviceAddress() + (region.begin - region.mirror->base) : region.buffer->DeviceAddress();
     Require(region.end - region.begin <= std::numeric_limits<std::uint64_t>::max() - address, "GPU address range overflow");
     const auto permissions = ShaderRecompiler::BdaAbi::Read | (region.direct != nullptr && region.writable ? ShaderRecompiler::BdaAbi::Write : 0u);
-    return {region.begin, region.end, address, permissions, 0};
+    const bool cut = region.direct == nullptr && region.mirror == nullptr && region.bufferEnd != 0;
+    return {region.begin, cut ? region.bufferEnd : region.end, address, permissions, 0};
 }
 
 std::vector<ShaderRecompiler::BdaAbi::Range> GuestBufferMemory::AddressRanges() const {
