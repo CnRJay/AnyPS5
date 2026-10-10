@@ -19,6 +19,7 @@ struct SwappcCall {
     std::uint32_t callIndex = 0;
     std::uint32_t linkRegister = 0;
     bool fetch = false;
+    bool computed = false;
     std::uint32_t targetIndex = 0;
     std::uint32_t targetProgramCounter = 0;
     std::uint32_t returnIndex = 0;

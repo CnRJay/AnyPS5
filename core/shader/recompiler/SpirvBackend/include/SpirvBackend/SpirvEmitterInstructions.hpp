@@ -223,6 +223,7 @@ void EmitWaitcnt(SpirvValueEmitContext& context);
 void EmitSendmsg(SpirvValueEmitContext& context);
 void EmitTtraceData(SpirvValueEmitContext& context);
 void EmitInstPrefetch(SpirvValueEmitContext& context);
+void EmitComputedCall(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitUndefU8(SpirvEmitterState& state, const IrValue& inst);
 std::uint32_t EmitUndefU16(SpirvEmitterState& state, const IrValue& inst);
 std::uint32_t EmitUndefU32(SpirvEmitterState& state, const IrValue& inst);
@@ -344,6 +345,7 @@ std::uint32_t EmitSharedAtomicCmpstF64(SpirvValueEmitContext& ctx, const IrValue
 std::uint32_t EmitSharedAtomicMskor64(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitDataAppend(SpirvValueEmitContext& ctx, const IrValue& inst);
 std::uint32_t EmitDataConsume(SpirvValueEmitContext& ctx, const IrValue& inst);
+std::uint32_t EmitDataOrderedAdd(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitImageQueryDimensions(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitImageQueryLod(SpirvValueEmitContext& ctx, const IrValue& inst);
 void EmitImageRead(SpirvValueEmitContext& ctx, const IrValue& inst);

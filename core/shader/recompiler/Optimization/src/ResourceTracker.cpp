@@ -1133,6 +1133,10 @@ private:
 
     void Collect(IrValue& inst) {
         const auto op = inst.Opcode();
+        if (op == IrOpcode::ComputedCall) {
+            m_info.usesFaultBuffer = true;
+            return;
+        }
         if (op == IrOpcode::ImageBvhIntersectRay) {
             m_info.usesDma = true;
             return;

@@ -426,6 +426,7 @@ enum class IrOpcode : std::uint16_t {
     SharedAtomicMskor64,
     DataAppend,
     DataConsume,
+    DataOrderedAdd,
     SwizzleU32,
     ImageQueryDimensions,
     ImageQueryLod,
@@ -471,6 +472,7 @@ enum class IrOpcode : std::uint16_t {
     Sendmsg,
     TtraceData,
     InstPrefetch,
+    ComputedCall,
     SelectU32,
     ImageBvhIntersectRay,
     Count

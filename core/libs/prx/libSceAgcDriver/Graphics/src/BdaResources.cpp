@@ -253,6 +253,10 @@ void BdaResources::CheckFault() const {
         return;
     }
     std::ostringstream message;
+    if (report.reason == ShaderRecompiler::BdaAbi::FaultReason::ComputedCall) {
+        message << "shader s_swappc_b64 at program counter 0x" << std::hex << report.instruction << " called the computed address 0x" << report.address << ": calls to code outside the shader are not implemented";
+        throw std::runtime_error(message.str());
+    }
     message << "BDA access failed: address=0x" << std::hex << report.address << " instruction=0x" << report.instruction << std::dec << " bytes=" << report.bytes << " stage=" << report.stage << " reason=" << static_cast<std::uint32_t>(report.reason);
     if (report.reason == ShaderRecompiler::BdaAbi::FaultReason::Permission && table != nullptr) {
         const auto bytes = table->Bytes();

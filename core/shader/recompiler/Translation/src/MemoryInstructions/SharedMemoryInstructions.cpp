@@ -2,6 +2,7 @@
 #include "Translation/TranslationContext.hpp"
 #include <array>
 #include <stdexcept>
+#include <string>
 
 namespace ShaderRecompiler {
 
@@ -289,6 +290,41 @@ bool TranslationContext::dsAppendConsume(const RdnaInstruction& inst, IrOpcode o
     IrValue& activeLo = ir.GetExecLo();
     IrValue& activeHi = ir.GetExecHi();
     IrValue& result = ir.Emit(opcode, IrOpcodeType(opcode), {&address.Value(), &active, &activeLo, &activeHi}, addMemoryInfo(memory, inst.programCounter));
+    writeOperand(inst.destination, &result);
+    return true;
+}
+
+bool TranslationContext::dsOrderedCount(const RdnaInstruction& inst) {
+    const std::uint32_t offset0 = inst.memoryOffset & 0xffu;
+    const std::uint32_t offset1 = inst.memoryOffset >> 8u;
+    const bool waveRelease = (offset1 & 1u) != 0u;
+    const bool waveDone = (offset1 & 2u) != 0u;
+    const std::uint32_t operation = (offset1 >> 4u) & 3u;
+    const std::uint32_t dwords = ((offset1 >> 6u) & 3u) + 1u;
+    const std::string at = "ds_ordered_count at pc " + std::to_string(inst.programCounter);
+    if (!inst.gds) {
+        throw std::runtime_error(at + " without GDS is not supported");
+    }
+    if ((offset0 & 3u) != 0u) {
+        throw std::runtime_error(at + ": offset0 " + std::to_string(offset0) + " does not select an ordered count index");
+    }
+    if (operation != 0u) {
+        throw std::runtime_error(at + ": ordered swap and operation " + std::to_string(operation) + " are not implemented");
+    }
+    if (dwords != 1u) {
+        throw std::runtime_error(at + ": " + std::to_string(dwords) + " dwords per ordered add are not implemented");
+    }
+    if (waveDone && !waveRelease) {
+        throw std::runtime_error(at + ": wave_done without wave_release");
+    }
+    MemoryInfo memory = sharedMemoryInfoFromInstruction(inst);
+    memory.offset = offset0;
+    const IrU32 address = readU32(makeM0Operand());
+    IrValue& active = ir.GetExec();
+    const IrU32 value(ir.Emit(IrOpcode::ReadFirstLane, IrType::U32, {&readU32(inst.source0).Value(), &active}));
+    IrValue& activeLo = ir.GetExecLo();
+    IrValue& activeHi = ir.GetExecHi();
+    IrValue& result = ir.Emit(IrOpcode::DataOrderedAdd, IrOpcodeType(IrOpcode::DataOrderedAdd), {&address.Value(), &value.Value(), &active, &activeLo, &activeHi}, addMemoryInfo(memory, inst.programCounter));
     writeOperand(inst.destination, &result);
     return true;
 }

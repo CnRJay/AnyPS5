@@ -190,6 +190,11 @@ void FlushGpuWrites(std::uint64_t address, std::size_t bytes);
 // the states it consulted were current and no page it read changed its mapping meanwhile.
 std::uint64_t ForgetSerial();
 
+constexpr std::uint64_t ShaderHookTableAddress = 0xfe0040000ull;
+constexpr std::size_t ShaderHookTableBytes = 0x4000;
+constexpr std::uint64_t ShaderHookRecordOffset = 0x1000;
+void MapShaderHookTable();
+
 // Attribution of guest memory accesses (the [hooksync] line in Recorder.cpp and the read-site
 // counts of the [guestmem] line, APS5_PROFILE_DRAW): a sync the flush hook makes for an access has
 // to be charged to the PM4 packet and the driver code that made the access. A queue worker names

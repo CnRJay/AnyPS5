@@ -467,6 +467,10 @@ IrProgram InstructionTranslator::Translate(const RdnaProgram& decoded, const Con
                     continue;
                 }
             }
+            if (std::ranges::find(cfg.computedCallProgramCounters, instruction.programCounter) != cfg.computedCallProgramCounters.end()) {
+                context.TranslateComputedCall(instruction);
+                continue;
+            }
             context.TranslateInstruction(instruction);
             if (cfg.hasFetchCall && instruction.programCounter == cfg.fetchCallProgramCounter) {
                 translateExternalFetch(context, instruction, options.inputInfo.vertex);

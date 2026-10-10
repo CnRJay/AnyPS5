@@ -641,6 +641,7 @@ void EmitDirectInstruction(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::SharedAtomicMskor64: return Invoke(EmitSharedAtomicMskor64, ctx, inst);
         case IrOpcode::DataAppend: return Invoke(EmitDataAppend, ctx, inst);
         case IrOpcode::DataConsume: return Invoke(EmitDataConsume, ctx, inst);
+        case IrOpcode::DataOrderedAdd: return Invoke(EmitDataOrderedAdd, ctx, inst);
         case IrOpcode::SwizzleU32: return Invoke(EmitSwizzleU32, ctx, inst);
         case IrOpcode::ImageQueryDimensions: return Invoke(EmitImageQueryDimensions, ctx, inst);
         case IrOpcode::ImageQueryLod: return Invoke(EmitImageQueryLod, ctx, inst);
@@ -685,6 +686,7 @@ void EmitDirectInstruction(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::Sendmsg: return Invoke(EmitSendmsg, ctx, inst);
         case IrOpcode::TtraceData: return Invoke(EmitTtraceData, ctx, inst);
         case IrOpcode::InstPrefetch: return Invoke(EmitInstPrefetch, ctx, inst);
+        case IrOpcode::ComputedCall: return Invoke(EmitComputedCall, ctx, inst);
         case IrOpcode::SelectU32: return Invoke(EmitSelectU32, ctx, inst);
         default: ctx.Fail(inst, "has no direct SPIR-V emitter");
     }
@@ -754,7 +756,7 @@ void EmitStructuredBlock(SpirvValueEmitContext& ctx, StructuredFunctionState& fu
             }
             SpirvValueEmitContext& lane = half == 0 ? ctx : *ctx.otherHalf;
             state.laneHalf = half;
-            if (half == 0 || (inst->Opcode() != IrOpcode::Barrier && inst->Opcode() != IrOpcode::MeshAllocate)) {
+            if (half == 0 || (inst->Opcode() != IrOpcode::Barrier && inst->Opcode() != IrOpcode::MeshAllocate && inst->Opcode() != IrOpcode::ComputedCall)) {
                 EmitStructuredInstruction(lane, functionState, *inst);
             }
         }
@@ -866,6 +868,14 @@ void EmitTtraceData(SpirvValueEmitContext& context) {
 
 void EmitInstPrefetch(SpirvValueEmitContext& context) {
     EmitVoid(context);
+}
+
+void EmitComputedCall(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    auto& state = ctx.state;
+    if (state.faultBufferVariable == 0) {
+        ctx.Fail(inst, "calls a computed target without a fault buffer");
+    }
+    RecordBdaFaultWords(state, ctx.Arg(inst, 0), ctx.Arg(inst, 1), ConstantU32(state, 0u), ctx.Arg(inst, 2), BdaAbi::FaultReason::ComputedCall);
 }
 
 void EmitPhi(SpirvValueEmitContext& ctx, const IrValue& inst) {

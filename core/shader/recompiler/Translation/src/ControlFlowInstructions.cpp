@@ -228,6 +228,12 @@ void TranslationContext::sSwappcB64(const RdnaInstruction& inst) {
     writeU32Pair(inst.destination, extractU64(link));
 }
 
+void TranslationContext::TranslateComputedCall(const RdnaInstruction& instruction) {
+    const std::array<IrU32, 2> target = readU32Pair(instruction.source0);
+    (void)ir.Emit(IrOpcode::ComputedCall, IrType::Void, {&target[0].Value(), &target[1].Value(), &ir.Constant(instruction.programCounter)});
+    TranslateInstruction(instruction);
+}
+
 void TranslationContext::sCselectB32(const RdnaInstruction& inst) {
     const IrU32 trueValue = readU32(sourceAt(inst, 0u));
     const IrU32 falseValue = readU32(sourceAt(inst, 1u));

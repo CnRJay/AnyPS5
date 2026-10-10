@@ -110,6 +110,7 @@ struct ControlFlowGraph {
     std::uint32_t entryBlock = InvalidControlFlowId;
     bool hasFetchCall = false;
     std::uint32_t fetchCallProgramCounter = 0;
+    std::vector<std::uint32_t> computedCallProgramCounters;
     bool irreducible = false;
     bool unsupported = false;
     FailureKind failureKind = FailureKind::None;

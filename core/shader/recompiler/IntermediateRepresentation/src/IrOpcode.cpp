@@ -467,6 +467,7 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("SharedAtomicMskor64", U64, U32, U64, U64, U1),
     makeMeta("DataAppend", U32, U32, U1, U32, U32),
     makeMeta("DataConsume", U32, U32, U1, U32, U32),
+    makeMeta("DataOrderedAdd", U32, U32, U32, U1, U32, U32),
     makeMeta("SwizzleU32", U32, U32, U32, U1),
     makeMeta("ImageQueryDimensions", U32x4, ImageResource, ImageAddress),
     makeMeta("ImageQueryLod", U32x4, ImageResource, SamplerResource, ImageAddress),
@@ -512,6 +513,7 @@ constexpr std::array<OpcodeMeta, static_cast<std::size_t>(IrOpcode::Count)> Meta
     makeMeta("Sendmsg", Void),
     makeMeta("TtraceData", Void),
     makeMeta("InstPrefetch", Void),
+    makeMeta("ComputedCall", Void, U32, U32, U32),
     makeMeta("SelectU32", U32, U1, U32, U32),
     makeMeta("ImageBvhIntersectRay", U32x4, U32x4, ImageAddress, U1),
 }};
@@ -690,6 +692,7 @@ SharedAccess SharedAccessOf(IrOpcode opcode) {
         case IrOpcode::SharedAtomicMskor64:
             return SharedAccess::Atomic;
         case IrOpcode::DataAppend:
+        case IrOpcode::DataOrderedAdd:
             return SharedAccess::Append;
         case IrOpcode::DataConsume:
             return SharedAccess::Consume;
@@ -904,6 +907,7 @@ bool IrOpcodeHasSideEffects(IrOpcode opcode) {
         case IrOpcode::Sendmsg:
         case IrOpcode::TtraceData:
         case IrOpcode::InstPrefetch:
+        case IrOpcode::ComputedCall:
         case IrOpcode::SetAttribute:
             return true;
         default:

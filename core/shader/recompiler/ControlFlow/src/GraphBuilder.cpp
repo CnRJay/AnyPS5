@@ -427,9 +427,13 @@ const SwappcCall* findCallAt(const std::vector<SwappcCall>& calls, std::uint32_t
     return nullptr;
 }
 
+bool opensCallRegion(const SwappcCall& call) {
+    return !call.fetch && !call.computed;
+}
+
 const SwappcCall* findReturnAt(const std::vector<SwappcCall>& calls, std::uint32_t index) {
     for (const auto& call : calls) {
-        if (!call.fetch && call.returnIndex == index) {
+        if (opensCallRegion(call) && call.returnIndex == index) {
             return &call;
         }
     }
@@ -480,6 +484,12 @@ std::vector<SwappcCall> analyzeSwappcCalls(const RdnaProgram& program, const Swa
             calls.push_back(call);
             continue;
         }
+        if (instruction.op == RdnaOpcode::SSwappcB64 && !staticTarget) {
+            call.computed = true;
+            call.returnTargetProgramCounter = instructionEndProgramCounter(instruction);
+            calls.push_back(call);
+            continue;
+        }
         if (!staticTarget || call.targetIndex == InvalidControlFlowId) {
             throw std::invalid_argument("computed/data-dependent s_swappc_b64 call target at program counter " + toHexString(instruction.programCounter) + " is not statically resolvable");
         }
@@ -488,6 +498,9 @@ std::vector<SwappcCall> analyzeSwappcCalls(const RdnaProgram& program, const Swa
     }
 
     for (auto& call : calls) {
+        if (call.computed) {
+            continue;
+        }
         std::uint32_t returnIndex = InvalidControlFlowId;
         for (std::uint32_t index = 0; index < program.instructions.size(); ++index) {
             if (index == call.callIndex) {
@@ -528,12 +541,12 @@ std::vector<SwappcCall> analyzeSwappcCalls(const RdnaProgram& program, const Swa
     }
 
     for (std::size_t first = 0; first < calls.size(); ++first) {
-        if (!calls[first].fetch && calls[first].callIndex >= calls[first].targetIndex && calls[first].callIndex <= calls[first].returnIndex) {
+        if (opensCallRegion(calls[first]) && calls[first].callIndex >= calls[first].targetIndex && calls[first].callIndex <= calls[first].returnIndex) {
             throw std::invalid_argument("recursive scalar call at program counter " + toHexString(program.instructions[calls[first].callIndex].programCounter) +
                 ": the call executes inside its own call region");
         }
         for (std::size_t second = first + 1u; second < calls.size(); ++second) {
-            if (calls[first].fetch || calls[second].fetch) {
+            if (!opensCallRegion(calls[first]) || !opensCallRegion(calls[second])) {
                 continue;
             }
             const bool disjoint = calls[first].returnIndex < calls[second].targetIndex || calls[second].returnIndex < calls[first].targetIndex;
@@ -546,7 +559,7 @@ std::vector<SwappcCall> analyzeSwappcCalls(const RdnaProgram& program, const Swa
         }
     }
 
-    const bool anyStaticCall = std::any_of(calls.begin(), calls.end(), [](const SwappcCall& call) { return !call.fetch; });
+    const bool anyStaticCall = std::any_of(calls.begin(), calls.end(), [](const SwappcCall& call) { return opensCallRegion(call); });
     if (anyStaticCall) {
         struct Transfer {
             std::uint32_t index;
@@ -574,13 +587,13 @@ std::vector<SwappcCall> analyzeSwappcCalls(const RdnaProgram& program, const Swa
             }
             if (instruction.op == RdnaOpcode::SSwappcB64 || instruction.op == RdnaOpcode::SCallB64) {
                 const SwappcCall* call = findCallAt(calls, index);
-                transfers.push_back(Transfer{index, call->fetch ? index + 1u : call->targetIndex});
+                transfers.push_back(Transfer{index, opensCallRegion(*call) ? call->targetIndex : index + 1u});
                 continue;
             }
             if (instruction.op != RdnaOpcode::SEndpgm && instruction.op != RdnaOpcode::SCodeEnd) transfers.push_back(Transfer{index, index + 1u});
         }
         for (const auto& call : calls) {
-            if (call.fetch) {
+            if (!opensCallRegion(call)) {
                 continue;
             }
             for (const auto& transfer : transfers) {
@@ -719,7 +732,7 @@ std::vector<BasicBlock> GraphBuilder::splitIntoBlocks(const RdnaProgram& program
             }
         } else if (instruction.op == RdnaOpcode::SSwappcB64 || instruction.op == RdnaOpcode::SCallB64) {
             const SwappcCall* call = findCallAt(calls, index);
-            if (call != nullptr && !call->fetch) {
+            if (call != nullptr && opensCallRegion(*call)) {
                 labels.insert(call->targetProgramCounter);
                 if (nextProgramCounter <= endProgramCounter) {
                     labels.insert(nextProgramCounter);
@@ -797,7 +810,7 @@ void GraphBuilder::linkBlocks(std::vector<BasicBlock>& blocks, const RdnaProgram
                 block.terminator.condition = BranchCondition::Always;
                 block.terminator.trueBlock = programCounterToBlock.at(target);
             }
-        } else if (const SwappcCall* call = findCallAt(calls, block.instructionEnd - 1u); call != nullptr && !call->fetch) {
+        } else if (const SwappcCall* call = findCallAt(calls, block.instructionEnd - 1u); call != nullptr && opensCallRegion(*call)) {
             std::uint32_t ignoredTarget = 0;
             if (block.instructionEnd - block.instructionBegin < 4u && resolveLongSetpcTarget(program, block.instructionEnd - 1u, ignoredTarget)) throw std::invalid_argument("long branch at program counter " + toHexString(last.programCounter) + " does not start in its block");
             block.terminator.kind = TerminatorKind::Branch;
@@ -877,6 +890,9 @@ ControlFlowGraph GraphBuilder::Build(const RdnaProgram& program, const SwappcInf
         if (call.fetch) {
             graph.hasFetchCall = true;
             graph.fetchCallProgramCounter = program.instructions[call.callIndex].programCounter;
+        }
+        if (call.computed) {
+            graph.computedCallProgramCounters.push_back(program.instructions[call.callIndex].programCounter);
         }
     }
     const auto originalSize = graph.blocks.size();

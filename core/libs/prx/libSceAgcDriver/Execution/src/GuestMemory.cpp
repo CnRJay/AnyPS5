@@ -698,6 +698,18 @@ std::string verify(std::uintptr_t address, std::size_t bytes, bool writable) {
 
 }
 
+void MapShaderHookTable() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        if (!GuestArena::GuestArenaAvailable_nid_postfix()) return;
+        auto* table = reinterpret_cast<std::uint64_t*>(ShaderHookTableAddress);
+        GuestArena::GuestArenaCommitSystem_nid_postfix(table, ShaderHookTableBytes, 0x04);
+        table[0] = ShaderHookTableAddress + ShaderHookRecordOffset;
+        GuestArena::GuestArenaSetProtection_nid_postfix(ShaderHookTableAddress, ShaderHookTableBytes, 0x02);
+        ForgetPages(ShaderHookTableAddress, ShaderHookTableBytes);
+    });
+}
+
 void CheckRange(const void* pointer, std::size_t bytes, std::size_t alignment, bool writable) {
     require(alignment != 0, "zero guest memory alignment");
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);

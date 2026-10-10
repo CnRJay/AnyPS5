@@ -794,7 +794,7 @@ std::uint32_t AddressAtomic(SpirvValueEmitContext& ctx, const IrValue& inst) {
     });
 }
 
-std::uint32_t AppendConsume(SpirvValueEmitContext& ctx, const IrValue& inst, bool append) {
+std::uint32_t AppendConsume(SpirvValueEmitContext& ctx, const IrValue& inst, bool append, bool explicitValue = false) {
     auto& state = ctx.state;
     if (ctx.half == 1u) {
         if (ctx.otherHalf == nullptr) {
@@ -817,19 +817,21 @@ std::uint32_t AppendConsume(SpirvValueEmitContext& ctx, const IrValue& inst, boo
     }
     const auto access = PrepareMemoryResourceAccess(state, mem);
     const auto index = EmitMemoryElementIndex(state, access, rawIndex);
-    const auto exec = ctx.Arg(inst, 1);
-    const auto ballot = ctx.Ballot(inst.Argument(1));
+    const auto activeArgument = explicitValue ? 2u : 1u;
+    const auto exec = ctx.Arg(inst, activeArgument);
+    const auto ballot = ctx.Ballot(inst.Argument(activeArgument));
     const auto low = state.module.AllocateId();
     const auto high = state.module.AllocateId();
     state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), low, ballot, 0u);
     state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), high, ballot, 1u);
-    const auto count = Binary(state, spv::OpIAdd, TypeU32(state), Unary(state, spv::OpBitCount, TypeU32(state), low), Unary(state, spv::OpBitCount, TypeU32(state), high));
+    const auto active = Binary(state, spv::OpINotEqual, TypeBool(state), Binary(state, spv::OpBitwiseOr, TypeU32(state), low, high), ConstantU32(state, 0u));
+    const auto count = explicitValue ? ctx.Arg(inst, 1) : Binary(state, spv::OpIAdd, TypeU32(state), Unary(state, spv::OpBitCount, TypeU32(state), low), Unary(state, spv::OpBitCount, TypeU32(state), high));
     const auto first = ctx.FirstLane(ballot);
     const auto sourceLane = wave64 ? Binary(state, spv::OpBitwiseAnd, TypeU32(state), first, ConstantU32(state, 31u)) : first;
     const auto isFirst = Binary(state, spv::OpIEqual, TypeBool(state), EmitSubgroupLocalInvocationId(state), sourceLane);
     const auto storageBounds = EmitMemoryElementInBounds(state, access, index);
-    const auto bounds = gds ? AndCondition(state, storageBounds, m0Bounds) : storageBounds;
-    const auto lanesActive = wave64 ? Binary(state, spv::OpINotEqual, TypeBool(state), count, ConstantU32(state, 0u)) : exec;
+    const auto bounds = gds && !explicitValue ? AndCondition(state, storageBounds, m0Bounds) : storageBounds;
+    const auto lanesActive = wave64 ? active : exec;
     const auto condition = AndCondition(state, isFirst, AndCondition(state, lanesActive, bounds));
     const auto atomic = EmitValueOrZeroIfCondition(state, condition, [&]() {
         const auto value = state.module.AllocateId();
@@ -1357,6 +1359,10 @@ std::uint32_t EmitDataAppend(SpirvValueEmitContext& ctx, const IrValue& inst) {
 
 std::uint32_t EmitDataConsume(SpirvValueEmitContext& ctx, const IrValue& inst) {
     return AppendConsume(ctx, inst, false);
+}
+
+std::uint32_t EmitDataOrderedAdd(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return AppendConsume(ctx, inst, true, true);
 }
 
 

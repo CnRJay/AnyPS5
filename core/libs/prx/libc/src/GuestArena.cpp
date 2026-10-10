@@ -285,6 +285,17 @@ std::invalid_argument OutsideArena(const char* operation, const void* pointer, s
     return std::invalid_argument(message);
 }
 
+bool InSystemReserved(const void* pointer, std::size_t bytes) {
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    return address >= SystemReservedStart && bytes <= SystemReservedEnd - address;
+}
+
+std::invalid_argument OutsideSystemReserved(const void* pointer, std::size_t bytes) {
+    char message[128];
+    std::snprintf(message, sizeof(message), "system commit 0x%llx+0x%zx outside the system reserved range", static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(pointer)), bytes);
+    return std::invalid_argument(message);
+}
+
 }
 
 #ifdef _WIN32
@@ -338,6 +349,11 @@ void GuestArenaCommit_nid_postfix(void* pointer, std::size_t bytes, std::uint32_
 void GuestArenaReset_nid_postfix(void* pointer, std::size_t bytes) {
     if (!Arena::Get().Contains(pointer, bytes)) throw OutsideArena("reset", pointer, bytes);
     WindowsMappings::Get().Reset(pointer, bytes);
+}
+
+void GuestArenaCommitSystem_nid_postfix(void* pointer, std::size_t bytes, std::uint32_t protection) {
+    if (!InSystemReserved(pointer, bytes)) throw OutsideSystemReserved(pointer, bytes);
+    static_cast<void>(WindowsMappings::Get().Commit(pointer, bytes, protection, bytes, false));
 }
 
 void GuestArenaMap_nid_postfix(void* pointer, std::size_t bytes, void* section, std::uint64_t offset, std::uint32_t protection) {
@@ -397,6 +413,15 @@ void GuestArenaCommit_nid_postfix(void* pointer, std::size_t bytes, std::uint32_
 void GuestArenaReset_nid_postfix(void* pointer, std::size_t bytes) {
     if (!Arena::Get().Contains(pointer, bytes)) throw OutsideArena("reset", pointer, bytes);
     if (PlaceAt(pointer, bytes, 0x01) == MAP_FAILED) throw std::system_error(errno, std::generic_category(), "guest arena reset failed");
+}
+
+void GuestArenaCommitSystem_nid_postfix(void* pointer, std::size_t bytes, std::uint32_t protection) {
+    if (!InSystemReserved(pointer, bytes)) throw OutsideSystemReserved(pointer, bytes);
+    void* const placed = mmap(pointer, bytes, PosixProtection(protection), MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (placed == pointer) return;
+    const int failed = placed == MAP_FAILED ? errno : EEXIST;
+    if (placed != MAP_FAILED) munmap(placed, bytes);
+    throw std::system_error(failed, std::generic_category(), "commit in the system reserved range failed");
 }
 #endif
 
