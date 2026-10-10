@@ -642,6 +642,7 @@ std::array<std::uint32_t, 5> ReadDispatchArguments(std::uint64_t arguments, std:
     // Named for the [hooksync] attribution (the read goes through the flush hook).
     const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::IndirectArguments);
     GuestMemory::Read(arguments, std::as_writable_bytes(std::span(result).subspan(1, 3)), 4);
+    if (result[2] > 65535u || result[3] > 65535u) std::fprintf(stderr, "[probe-indirect] arguments 0x%llx read %ux%ux%u\n", static_cast<unsigned long long>(arguments), result[1], result[2], result[3]);
     return result;
 }
 
