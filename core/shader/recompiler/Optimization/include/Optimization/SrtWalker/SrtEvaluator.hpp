@@ -78,9 +78,6 @@ public:
     bool Evaluate(IrValue* value, std::uint32_t& result);
     bool EvaluateWide(IrValue* raw, std::uint64_t& result);
     void ReportInaccessibleReads(InaccessibleRead* sink) { _inaccessible = sink; }
-    // Reads through a null pointer taken from user data (not loaded from memory) read as zero and
-    // are counted here instead of failing: no compiled guard covers them, so a program reaching
-    // one on hardware would fault, and one that branches around it never sees the value.
     void ReportNullRootReads(std::uint32_t* sink) { _nullRoots = sink; }
 
 private:

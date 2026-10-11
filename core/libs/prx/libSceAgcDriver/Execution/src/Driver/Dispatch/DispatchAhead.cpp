@@ -82,7 +82,6 @@ void NoteLabel(std::vector<RunLabel>& labels, std::uint64_t address, std::span<c
     labels.push_back({address, bytes.size(), value});
 }
 
-// Whether the program may store through guest pointers (address-based), beyond its bound buffers.
 bool WritesThroughPointers(const ShaderRecompiler::RecompileResult& compiled) {
     return std::any_of(compiled.bindings.begin(), compiled.bindings.end(), [](const ShaderRecompiler::DescriptorBinding& binding) { return binding.role == ShaderRecompiler::DescriptorRole::BdaPagetable; });
 }
@@ -109,7 +108,6 @@ void Driver::resolveGroupAhead(const Submission& submission, const QueueState& l
     QueueState scratch = live;
     std::vector<RunLabel> labels;
     std::vector<std::pair<std::uint64_t, std::uint64_t>> writes;
-    // An earlier dispatch of the run wrote memory `writes` does not list.
     bool unknownWrites = false;
     for (const auto& label : deferredLabels().labels) NoteLabel(labels, label.address, std::span<const std::byte>(label.bytes).first(label.size));
     struct Resolving {
@@ -137,10 +135,6 @@ void Driver::resolveGroupAhead(const Submission& submission, const QueueState& l
             if (!Pm4::WaitSatisfiedUnchecked(packet) && !WrittenByRun(packet, labels)) break;
         } else if (opcode == 0x15 || opcode == 0x16) {
             if (resolved.contains(cursor)) break;
-            // Resolving an indirect dispatch may read its arguments now (thread dimensions, a fill
-            // kernel, GPU indirect disabled), ahead of the dispatches before it in the run: one of
-            // them may fill those dwords (a kernel writing the counts), so the run stops before it
-            // unless every earlier dispatch's writes are known and miss them.
             if (opcode == 0x16) {
                 std::uint64_t arguments = 0;
                 try {
@@ -178,7 +172,6 @@ void Driver::resolveGroupAhead(const Submission& submission, const QueueState& l
                 if (found->second.compiledResult != nullptr) appendWrittenRanges(*found->second.compiledResult, writes);
                 if (found->second.compiledResult == nullptr || WritesThroughPointers(*found->second.compiledResult)) unknownWrites = true;
             } else {
-                // Not parked (a fill or copy done by the driver itself): what it wrote is not known.
                 unknownWrites = true;
             }
         } else if (opcode == 0x37 || opcode == 0x49) {

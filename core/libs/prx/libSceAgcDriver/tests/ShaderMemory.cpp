@@ -2536,8 +2536,6 @@ void verifyGuardedNullPointers() {
         static_cast<void>(ValidateAndOptimizeSpirv(result->spirv, vertex.request.target.vulkanVersion, vertex.request.target.spirvVersion));
 #endif
     }
-    // A null user-data pointer: hardware faults on a read through it, so a program that runs reads
-    // none (it branches around them); they read as zero, and the result is kept out of the caches.
     NestedRequest rootless(branchCode, nullptr);
     AgcDriver::ShaderMemory rootlessMemory({});
     const auto rootlessCapture = rootlessMemory.Capture(rootless.request);
@@ -2804,7 +2802,6 @@ int main(int argc, char** argv) {
         request.context.memory = {};
         const std::array<std::uint32_t, 2> nullUserData{};
         request.context.userData = nullUserData;
-        // Reads through a null user-data pointer read as zero, counted so the result is not cached.
         AgcDriver::ShaderMemory nullRoot({});
         const auto nullRootCapture = nullRoot.Capture(request);
         require(nullRootCapture->snapshot.nullRootReads != 0u, "reads through a null user-data pointer were not counted");

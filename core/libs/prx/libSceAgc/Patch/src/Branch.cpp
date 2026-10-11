@@ -48,8 +48,6 @@ int APS5_VABI sceAgcBranchPatchSetElseTarget(std::uint32_t* cmd, const volatile 
     return 0;
 }
 
-// The 3.00 setters also take the target's cache policy, before the target as in sceAgcCbBranch
-// (inferred from a title's calls: a valid branch packet, a zero policy, an aligned target, a size).
 int APS5_VABI sceAgcBranchPatchSetThenTarget_0300(std::uint32_t* cmd, std::uint8_t cachePolicy, const volatile std::uint32_t* target, std::uint32_t sizeInDwords) {
     PatchBranchTarget(cmd, 8, cachePolicy, target, sizeInDwords, __func__);
     return 0;
