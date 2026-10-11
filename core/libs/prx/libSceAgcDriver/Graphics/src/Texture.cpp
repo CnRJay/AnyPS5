@@ -1290,20 +1290,22 @@ bool ClearKeepsDenormals(const Context& context, VkFormat format) {
     return keeps;
 }
 
-std::uint32_t StorageTexture::ViewLayers(VkImageView view) const {
-    const auto found = viewLayerCounts.find(view);
-    return found == viewLayerCounts.end() ? 0u : found->second;
+LayerRange StorageTexture::ViewLayers(VkImageView view) const {
+    const auto found = viewLayerRanges.find(view);
+    return found == viewLayerRanges.end() ? LayerRange{} : found->second;
 }
 
-std::uint32_t StorageTexture::viewedLayers(std::uint32_t layers) const {
-    return layers >= geometry.imageLayers - descriptor.baseArray ? 0u : layers;
+LayerRange StorageTexture::resolveLayers(LayerRange range, bool firstLayer) const {
+    const auto base = range.count != 0 ? range.base : descriptor.baseArray;
+    Require(base < geometry.imageLayers, "a storage view starts past the image's last array layer");
+    const auto own = geometry.imageLayers - base;
+    return {base, firstLayer ? 1u : range.count != 0 ? std::min(range.count, own) : own};
 }
 
-VkImageView StorageTexture::createView(std::uint32_t mip, bool firstLayer, VkFormat format, std::uint32_t layers) const {
+VkImageView StorageTexture::createView(std::uint32_t mip, bool firstLayer, VkFormat format, LayerRange range) const {
     Require(mip < descriptor.mipCount, "storage texture mip level is outside the texture");
     Require(!firstLayer || descriptor.dimension == TextureDimension::k2DArray, "a first-layer storage view needs a 2D array surface");
-    const auto viewLayerCount = firstLayer ? 1u : layers != 0 ? layers : geometry.imageLayers - descriptor.baseArray;
-    VkImageViewUsageCreateInfo usage{VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO};
+    const auto layers = resolveLayers(range, firstLayer);    VkImageViewUsageCreateInfo usage{VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO};
     usage.usage = VK_IMAGE_USAGE_STORAGE_BIT;
     VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     viewInfo.pNext = format == storageFormat ? nullptr : &usage;
@@ -1312,10 +1314,10 @@ VkImageView StorageTexture::createView(std::uint32_t mip, bool firstLayer, VkFor
     viewInfo.viewType = firstLayer ? VK_IMAGE_VIEW_TYPE_2D : descriptor.dimension == TextureDimension::k1D ? VK_IMAGE_VIEW_TYPE_1D : descriptor.dimension == TextureDimension::k2D ? VK_IMAGE_VIEW_TYPE_2D : descriptor.dimension == TextureDimension::k3D ? VK_IMAGE_VIEW_TYPE_3D : descriptor.dimension == TextureDimension::k1DArray ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     viewInfo.format = format;
     viewInfo.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
-    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 1u, descriptor.baseArray, viewLayerCount};
+    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 1u, layers.base, layers.count};
     VkImageView created = VK_NULL_HANDLE;
     Check(context.Function<PFN_vkCreateImageView>("vkCreateImageView")(context.device, &viewInfo, nullptr, &created), "vkCreateImageView storage");
-    viewLayerCounts.emplace(created, viewLayerCount);
+    viewLayerRanges.emplace(created, layers);
     return created;
 }
 
@@ -1463,37 +1465,40 @@ void StorageTexture::RecordAttachmentProxyStore(VkCommandBuffer commands, VkImag
     barrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &stored, 0, nullptr, 0, nullptr);
 }
 
-VkImageView StorageTexture::View(std::uint32_t mip, std::uint32_t layers) {
-    layers = viewedLayers(layers);
-    if (mip == defaultMip && layers == 0) return view;
-    const auto found = extraViews.find({mip, layers});
+VkImageView StorageTexture::View(std::uint32_t mip, LayerRange range) {
+    const auto layers = resolveLayers(range);
+    if (mip == defaultMip && layers == resolveLayers({})) return view;
+    const ViewKey key{mip, layers.base, layers.count};
+    const auto found = extraViews.find(key);
     if (found != extraViews.end()) return found->second;
     const auto created = createView(mip, false, storageFormat, layers);
-    extraViews.emplace(std::pair{mip, layers}, created);
+    extraViews.emplace(key, created);
     return created;
 }
 
-VkImageView StorageTexture::FirstLayerView(std::uint32_t mip) {
-    const auto found = firstLayerViews.find(mip);
+VkImageView StorageTexture::FirstLayerView(std::uint32_t mip, LayerRange range) {
+    const auto layers = resolveLayers(range, true);
+    const ViewKey key{mip, layers.base, 1u};
+    const auto found = firstLayerViews.find(key);
     if (found != firstLayerViews.end()) return found->second;
-    const auto created = createView(mip, true, storageFormat);
-    firstLayerViews.emplace(mip, created);
+    const auto created = createView(mip, true, storageFormat, layers);
+    firstLayerViews.emplace(key, created);
     return created;
 }
 
-VkImageView StorageTexture::StorageView(std::uint32_t mip, bool firstLayer, std::uint32_t layers) {
+VkImageView StorageTexture::StorageView(std::uint32_t mip, bool firstLayer, LayerRange range) {
     const auto format = UintFormatOfSint(storageFormat);
-    if (format == VK_FORMAT_UNDEFINED) return firstLayer ? FirstLayerView(mip) : View(mip, layers);
-    if (format == VK_FORMAT_R32_UINT) return AtomicView(mip, firstLayer, layers);
-    layers = firstLayer ? 0u : viewedLayers(layers);
-    const auto found = uintViews.find({mip, firstLayer, layers});
+    if (format == VK_FORMAT_UNDEFINED) return firstLayer ? FirstLayerView(mip, range) : View(mip, range);
+    if (format == VK_FORMAT_R32_UINT) return AtomicView(mip, firstLayer, range);
+    const auto layers = resolveLayers(range, firstLayer);
+    const std::pair key{ViewKey{mip, layers.base, layers.count}, firstLayer};
+    const auto found = uintViews.find(key);
     if (found != uintViews.end()) return found->second;
     Require(StorageFormatOrUndefined(context, format) == format, "storage image of format " + std::to_string(storageFormat) + " has no storage view of its UINT format " + std::to_string(format));
     const auto created = createView(mip, firstLayer, format, layers);
-    uintViews.emplace(std::tuple{mip, firstLayer, layers}, created);
+    uintViews.emplace(key, created);
     return created;
 }
-
 VkImageView StorageTexture::ElementView() {
     if (elementView != VK_NULL_HANDLE) return elementView;
     if (descriptor.dimension != TextureDimension::k2D || geometry.imageLayers != 1) return VK_NULL_HANDLE;
@@ -1504,28 +1509,29 @@ VkImageView StorageTexture::ElementView() {
     return elementView;
 }
 
-VkImageView StorageTexture::AtomicView(std::uint32_t mip, bool firstLayer, std::uint32_t layers) {
-    if (storageFormat == VK_FORMAT_R32_UINT) return firstLayer ? FirstLayerView(mip) : View(mip, layers);
+VkImageView StorageTexture::AtomicView(std::uint32_t mip, bool firstLayer, LayerRange range) {
+    if (storageFormat == VK_FORMAT_R32_UINT) return firstLayer ? FirstLayerView(mip, range) : View(mip, range);
     Require(storageFormat == VK_FORMAT_R32_SINT || storageFormat == VK_FORMAT_R32_SFLOAT, "storage image atomics need a surface of one 32-bit component");
-    layers = firstLayer ? 0u : viewedLayers(layers);
-    const auto found = atomicViews.find({mip, firstLayer, layers});
+    const auto layers = resolveLayers(range, firstLayer);
+    const std::pair key{ViewKey{mip, layers.base, layers.count}, firstLayer};
+    const auto found = atomicViews.find(key);
     if (found != atomicViews.end()) return found->second;
     const auto created = createView(mip, firstLayer, VK_FORMAT_R32_UINT, layers);
-    atomicViews.emplace(std::tuple{mip, firstLayer, layers}, created);
+    atomicViews.emplace(key, created);
     return created;
 }
 
-VkImageView StorageTexture::Atomic64View(std::uint32_t mip, bool firstLayer, std::uint32_t layers) {
-    if (storageFormat == VK_FORMAT_R64_UINT) return firstLayer ? FirstLayerView(mip) : View(mip, layers);
+VkImageView StorageTexture::Atomic64View(std::uint32_t mip, bool firstLayer, LayerRange range) {
+    if (storageFormat == VK_FORMAT_R64_UINT) return firstLayer ? FirstLayerView(mip, range) : View(mip, range);
     Require(storageFormat == VK_FORMAT_R32G32_UINT || storageFormat == VK_FORMAT_R32G32_SINT || storageFormat == VK_FORMAT_R32G32_SFLOAT, "64-bit storage image atomics need a surface of two 32-bit components");
-    layers = firstLayer ? 0u : viewedLayers(layers);
-    const auto found = atomicViews.find({mip, firstLayer, layers});
+    const auto layers = resolveLayers(range, firstLayer);
+    const std::pair key{ViewKey{mip, layers.base, layers.count}, firstLayer};
+    const auto found = atomicViews.find(key);
     if (found != atomicViews.end()) return found->second;
     const auto created = createView(mip, firstLayer, VK_FORMAT_R64_UINT, layers);
-    atomicViews.emplace(std::tuple{mip, firstLayer, layers}, created);
+    atomicViews.emplace(key, created);
     return created;
 }
-
 const char* LookupOutcomes::Name(Kind kind) {
     static constexpr const char* names[Count] = {"sampled fast hit", "sampled fast miss", "sampled hit view", "sampled hit cleared view", "sampled hit snapshot", "sampled made view", "sampled made snapshot", "storage hit", "storage made", "refresh unchanged", "refresh compared", "refresh proved", "upload direct", "upload cpu", "upload clear", "dcc scan", "pending flush"};
     return kind < Count ? names[kind] : "?";
@@ -4371,7 +4377,7 @@ void StorageTexture::release() noexcept {
     uintViews.clear();
     if (elementView) context.Function<PFN_vkDestroyImageView>("vkDestroyImageView")(context.device, elementView, nullptr);
     elementView = VK_NULL_HANDLE;
-    viewLayerCounts.clear();
+    viewLayerRanges.clear();
     for (const auto& [key, element] : elementLayerViews) context.Function<PFN_vkDestroyImageView>("vkDestroyImageView")(context.device, element, nullptr);
     elementLayerViews.clear();
     for (const auto& [format, attachment] : attachmentViews) context.Function<PFN_vkDestroyImageView>("vkDestroyImageView")(context.device, attachment, nullptr);
