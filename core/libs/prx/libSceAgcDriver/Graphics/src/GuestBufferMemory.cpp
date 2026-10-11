@@ -2002,9 +2002,17 @@ bool RegisteredReadableCovers(std::uint64_t address, std::size_t bytes) {
 
 std::uint64_t RegisteredReadableEnd(std::uint64_t address) {
     if (address == std::numeric_limits<std::uint64_t>::max()) return 0;
+    // The last answer per thread, while the registry is unchanged: a lease copies every range.
+    thread_local struct {
+        std::uint64_t generation = 0, begin = 0, end = 0;
+    } last;
+    const auto generation = GuestAllocations::GuestAllocationsGeneration_nid_postfix();
+    if (last.generation == generation && last.end != 0 && last.begin <= address && address < last.end) return last.end;
     const auto lease = GuestAllocations::GuestAllocationsAcquire_nid_postfix();
     const auto* range = containingRange(lease, address, address + 1);
-    return range != nullptr ? range->address + range->bytes : 0;
+    if (range == nullptr) return 0;
+    last = {generation, range->address, range->address + range->bytes};
+    return last.end;
 }
 
 bool HostImportCovers(const Context& context, std::uint64_t address, std::size_t bytes) {

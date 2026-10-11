@@ -2102,19 +2102,20 @@ void oversizedDescriptorTests() {
         std::cout << "guest arena unavailable: oversized buffer descriptors not tested\n";
         return;
     }
-    constexpr std::size_t reserved = 1u << 20u;
+    constexpr std::size_t reserved = 128u << 20u;
     constexpr std::size_t committed = 65536;
     void* block = GuestArena::GuestArenaAllocate_nid_postfix(reserved, 65536);
     GuestArena::GuestArenaCommit_nid_postfix(block, committed, PAGE_READWRITE, 65536);
     const auto address = reinterpret_cast<std::uintptr_t>(block);
-    const auto rangeOf = [&](std::uint64_t base) {
-        auto words = vsharp(reinterpret_cast<const void*>(base), 0xffffffffu);
+    const auto rangeOf = [&](std::uint64_t base, std::uint32_t records = 0xffffffffu, std::uint32_t limit = 0) {
+        auto words = vsharp(reinterpret_cast<const void*>(base), records);
         words[1] |= 64u << 16u;
         ShaderRecompiler::RecompileResult vertex;
         ShaderRecompiler::RecompileResult fragment;
         vertex.bindings.push_back(makeBinding(Role::GuestBuffers, 0, 1, words));
         mock = MockVulkan{};
         auto context = mockContext();
+        if (limit != 0) context.limits.maxStorageBufferRange = limit;
         context.emptyBuffer = reinterpret_cast<VkBuffer>(std::uintptr_t{0x1000});
         const auto color = AgcDriver::Graphics::DecodeState(makeState()).color;
         VkDeviceSize range = 0;
@@ -2133,6 +2134,16 @@ void oversizedDescriptorTests() {
     GuestAllocations::GuestAllocationsAdd_nid_postfix(mutation, block, registered, true, true, true);
     GuestAllocations::GuestAllocationsEnd_nid_postfix(mutation);
     Require(rangeOf(address + 256) == registered - 256, "a buffer descriptor past the range limit was not cut at the end of its registered allocation");
+    // Under the limit: a large range leaving its allocation across uncommitted pages is cut the same
+    // way, and one inside its allocation is kept.
+    GuestArena::GuestArenaCommit_nid_postfix(static_cast<std::byte*>(block) + (96u << 20u), committed, PAGE_READWRITE, 65536);
+    constexpr std::uint32_t largeRecords = (100u << 20u) / 64u;
+    Require(rangeOf(address + 256, largeRecords, 0xffffffffu) == registered - 256, "a large buffer descriptor leaving its registered allocation across uncommitted pages was not cut at the allocation");
+    mutation = GuestAllocations::GuestAllocationsBegin_nid_postfix();
+    GuestAllocations::GuestAllocationsRemove_nid_postfix(mutation, block);
+    GuestAllocations::GuestAllocationsAdd_nid_postfix(mutation, block, reserved, true, true, true);
+    GuestAllocations::GuestAllocationsEnd_nid_postfix(mutation);
+    Require(rangeOf(address + 256, largeRecords, 0xffffffffu) > registered, "a large buffer descriptor inside its registered allocation was cut");
     mutation = GuestAllocations::GuestAllocationsBegin_nid_postfix();
     GuestAllocations::GuestAllocationsRemove_nid_postfix(mutation, block);
     GuestAllocations::GuestAllocationsEnd_nid_postfix(mutation);

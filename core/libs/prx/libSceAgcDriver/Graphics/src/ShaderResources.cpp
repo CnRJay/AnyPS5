@@ -2753,6 +2753,8 @@ std::size_t ShaderResources::addGuestBuffer(std::span<const std::uint32_t> words
         allocations.push_back({0, EmptyBufferBytes, false, nullptr, ShaderRecompiler::DescriptorRole::GuestBuffers, false});
         return allocations.size() - 1;
     }
+    // Below this size a range is taken as given (the registry lookup below is not free).
+    constexpr std::uint64_t LargeBufferBytes = 64ull << 20u;
     if (byteSize > context.limits.maxStorageBufferRange) {
         // A record count no device can bind (the title leaves it unset: it changes per use, 7-60
         // GiB): the registered allocation holding the base bounds it. Every committed byte up to
@@ -2769,6 +2771,11 @@ std::size_t ShaderResources::addGuestBuffer(std::span<const std::uint32_t> words
             }
             byteSize = std::min(limit, ((committed.back().second - address) + 3u) & ~std::uint64_t{3});
         }
+    } else if (byteSize >= LargeBufferBytes) {
+        // The same unset record count can land under the limit: a range leaving its registered
+        // allocation across uncommitted pages is no buffer, so the allocation bounds it as above.
+        const auto allocationEnd = RegisteredReadableEnd(address);
+        if (allocationEnd >= address + 4 && address + byteSize > allocationEnd && !GuestMemory::DescribeCommitted(allocationEnd, static_cast<std::size_t>(address + byteSize - allocationEnd)).whole) byteSize = (allocationEnd - address) & ~std::uint64_t{3};
     }
     if (byteSize > context.limits.maxStorageBufferRange) {
         char text[192];
