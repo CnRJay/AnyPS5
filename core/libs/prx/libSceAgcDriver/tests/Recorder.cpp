@@ -1127,6 +1127,125 @@ void viewPastLastMipTests(const Device& device, Recorder& recorder) {
     Require(texel(*past, 3) == 0x77777777u, "the level past the last mip was not read from its addrlib tail slot");
 }
 
+constexpr std::uint32_t sliceSide = 256;
+constexpr std::uint32_t sliceFormatUInt = 20;
+
+void storageSliceViewTests(const Device& device, Recorder& recorder) {
+    auto context = device.GetContext();
+    TextureDetiler detiler(context);
+    context.detiler = &detiler;
+    constexpr std::size_t region = 0x200000;
+    constexpr std::uint32_t formatSInt = 21;
+    std::vector<std::uint8_t> memory(region * 6 + 0x10000, 0x33);
+    const auto base = (reinterpret_cast<std::uintptr_t>(memory.data()) + 0xffffu) & ~std::uintptr_t{0xffffu};
+    const auto array = [&](std::size_t index, std::uint32_t slices, std::uint32_t extent = sliceSide, std::uint32_t levels = 1, std::uint32_t baseArray = 0, std::uint32_t format = sliceFormatUInt) {
+        GuestTextureResource resource{};
+        resource.baseAddress = base + index * region;
+        resource.width = extent;
+        resource.height = extent;
+        resource.depthOrLastArray = baseArray + slices - 1u;
+        resource.baseArray = baseArray;
+        resource.mipCount = levels;
+        resource.lastLevel = levels - 1u;
+        resource.tileMode = TextureTileMode::kR64KBX;
+        resource.dimension = TextureDimension::k2DArray;
+        resource.format = format;
+        resource.dstSelX = 4;
+        resource.dstSelY = 5;
+        resource.dstSelZ = 6;
+        resource.dstSelW = 7;
+        return resource;
+    };
+    const auto texel = [&](const StorageTexture& image, std::uint32_t layer) {
+        Buffer readback(context, 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        const auto commands = recorder.Commands();
+        RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1};
+        copy.imageExtent = {1, 1, 1};
+        context.Function<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(commands, image.Image(), VK_IMAGE_LAYOUT_GENERAL, readback.Handle(), 1, &copy);
+        RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
+        recorder.Submit();
+        device.WaitQueue();
+        recorder.Sync();
+        std::uint32_t value = 0;
+        std::memcpy(&value, readback.Bytes().data(), sizeof(value));
+        return value;
+    };
+    const auto cached = [&](const StorageTexture& image) { return StorageImageCached(context, &image); };
+    const auto slice = DescribeSurface(array(0, 4));
+    Require(DescribeSurface(array(0, 2)).layerBytes == slice.layerBytes && DescribeSurface(array(0, 2)).guestBytes * 2 == slice.guestBytes, "the test surfaces' slices are not one stride apart whatever their count");
+    for (std::uint32_t layer = 0; layer < 4; ++layer) std::memset(memory.data() + (base - reinterpret_cast<std::uintptr_t>(memory.data())) + slice.GuestLayerOffset(layer), 0x10 * (layer + 1), static_cast<std::size_t>(slice.layerBytes));
+
+    // A larger view of the memory replaces the smaller image once; every view then resolves to it.
+    const auto small = CachedStorageSurface(context, array(0, 2));
+    Require(small->Descriptor().depthOrLastArray == 1 && cached(*small), "the first view of a 2D array did not get an image of its own slices");
+    const auto large = CachedStorageSurface(context, array(0, 4));
+    recorder.Keep(large);
+    Require(large != small && large->Descriptor().depthOrLastArray == 3 && large->GuestBytes() == slice.guestBytes, "a larger view of the surface did not get an image of its slices");
+    Require(!cached(*small) && cached(*large), "the smaller image is still the surface's after a larger view");
+    Require(CachedStorageSurface(context, array(0, 4)) == large && CachedStorageSurface(context, array(0, 2)) == large && CachedStorageSurface(context, array(0, 3)) == large && CachedStorageSurface(context, array(0, 2)) == large, "views of fewer slices did not resolve to the larger image");
+    Require(CachedStorageSurface(context, array(0, 1)) == large, "a one-slice array view did not resolve to the larger image");
+    for (std::uint32_t layer = 0; layer < 4; ++layer) Require(texel(*large, layer) == 0x01010101u * (0x10 * (layer + 1)), "the larger image does not hold slice " + std::to_string(layer));
+
+    // The view a descriptor binds covers its own slices only.
+    const auto layers = [&](std::uint32_t slices, std::uint32_t format = sliceFormatUInt) {
+        const auto resource = array(0, slices, sliceSide, 1, 0, format);
+        return StorageViewLayers(resource);
+    };
+    Require(layers(2) == 2 && layers(4) == 4 && layers(1) == 1, "the layers a storage view covers are not the descriptor's slices");
+    const auto bound = [&](StorageTexture& image, std::uint32_t slices) { return image.ViewLayers(image.StorageView(0, false, layers(slices))); };
+    Require(bound(*large, 2) == 2 && bound(*large, 3) == 3 && bound(*large, 4) == 4 && bound(*large, 1) == 1, "a storage view does not cover its descriptor's slices");
+    Require(large->StorageView(0, false, layers(2)) == large->StorageView(0, false, layers(2)) && large->StorageView(0, false, layers(2)) != large->StorageView(0, false, layers(3)), "storage views of one slice count are not reused or views of two share one");
+    Require(large->StorageView(0, false, layers(4)) == large->StorageView(0, false), "a view of all the image's slices is not its own view");
+    Require(large->ViewLayers(large->View(0)) == 4 && large->ViewLayers(large->FirstLayerView(0)) == 1, "the image's own and first-layer views changed");
+    Require(large->ViewLayers(large->AtomicView(0, false, 2)) == 2, "atomic views do not follow the slices");
+
+    // The sampled view of the shared image keeps its own slices.
+    const VkComponentMapping identity{VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+    Require(Texture::CanCopyFrom(*large, array(0, 2)) && Texture::CanCopyFrom(*large, array(0, 4)) && !Texture::CanCopyFrom(*large, array(0, 5)), "a sampled view of fewer slices cannot be served from the larger image");
+    {
+        Texture sampled(context, large, array(0, 2), identity);
+        const auto range = sampled.SampledViewRange(false);
+        Require(range.type == VK_IMAGE_VIEW_TYPE_2D_ARRAY && range.layers == 2, "a sampled view of the shared image does not cover its own slices");
+    }
+
+    // Large first: the smaller view takes the image as it is.
+    const auto first = CachedStorageSurface(context, array(1, 4));
+    Require(CachedStorageSurface(context, array(1, 2)) == first && CachedStorageSurface(context, array(1, 4)) == first && cached(*first), "a view of fewer slices after the larger one did not take its image");
+
+    // Storage formats with a UINT view share the image too.
+    {
+        const auto signedSmall = CachedStorageSurface(context, array(5, 2, sliceSide, 1, 0, formatSInt));
+        const auto signedLarge = CachedStorageSurface(context, array(5, 4, sliceSide, 1, 0, formatSInt));
+        Require(signedSmall != signedLarge && CachedStorageSurface(context, array(5, 2, sliceSide, 1, 0, formatSInt)) == signedLarge, "a signed 32-bit array did not share its larger image");
+        Require(signedLarge->ViewLayers(signedLarge->StorageView(0, false, 2)) == 2 && signedLarge->ViewLayers(signedLarge->AtomicView(0, false, 2)) == 2, "the UINT views of a signed storage image do not cover the descriptor's slices");
+    }
+
+    // Other slice strides, extra mips and a base array keep separate images.
+    const auto wide = CachedStorageSurface(context, array(2, 4));
+    const auto narrow = CachedStorageSurface(context, array(2, 2, sliceSide / 2));
+    Require(DescribeSurface(array(2, 2, sliceSide / 2)).layerBytes != slice.layerBytes, "the narrow surface has the wide one's slice stride");
+    Require(wide != narrow && cached(*wide) && cached(*narrow) && CachedStorageSurface(context, array(2, 2, sliceSide / 2)) == narrow && CachedStorageSurface(context, array(2, 4)) == wide, "arrays of another slice stride share an image");
+    Require(!Texture::CanCopyFrom(*wide, array(2, 2, sliceSide / 2)), "a sampled view of another slice stride is served from the image");
+
+    const auto chain = CachedStorageSurface(context, array(3, 4, sliceSide, 2));
+    const auto single = CachedStorageSurface(context, array(3, 2));
+    Require(chain != single && chain->Descriptor().mipCount == 2 && single->Descriptor().depthOrLastArray == 1 && cached(*chain) && cached(*single), "a view of a mip chain shares an image with a single-level array");
+    Require(StorageViewLayers(array(3, 4, sliceSide, 2)) == 0, "a mip chain's storage view is limited to slices");
+    Require(!Texture::CanCopyFrom(*chain, array(3, 2)), "a single-level view is served from a mip chain's image by slices");
+    const auto grown = CachedStorageSurface(context, array(3, 3));
+    Require(grown != single && grown->Descriptor().depthOrLastArray == 2 && !cached(*single) && cached(*chain), "a larger single-level view did not replace only the single-level image");
+
+    const auto offset = CachedStorageSurface(context, array(4, 4));
+    const auto based = CachedStorageSurface(context, array(4, 2, sliceSide, 1, 1));
+    Require(offset != based && cached(*offset) && cached(*based) && StorageViewLayers(array(4, 2, sliceSide, 1, 1)) == 0, "a view from a base array shares an image by slices");
+
+    ClearCachedTextures(context.device);
+    recorder.Submit();
+    device.WaitQueue();
+    recorder.Sync();
+}
 void resourceReadTests(const Device& device, Recorder& recorder) {
     const auto& context = device.GetContext();
     if (context.hostImportAlignment == 0) {
@@ -5010,6 +5129,7 @@ int main(int argc, char** argv) {
         remappedImportTests(device);
         movedMetadataTests(device, recorder);
         viewPastLastMipTests(device, recorder);
+        storageSliceViewTests(device, recorder);
         keysFillTests(device, recorder);
         denormalClearTests(device, recorder);
         unitShadowTests(device, recorder);

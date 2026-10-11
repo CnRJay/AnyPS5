@@ -796,6 +796,9 @@ std::array<std::uint32_t, 8> SurfaceKey(const Context& context, const GuestTextu
 struct ExtendedSurfaces {
     std::mutex mutex;
     std::map<std::array<std::uint32_t, 8>, std::uint32_t> levels;
+    // Per surface of SlicesResizable descriptors (the slice count left out of the identity): the
+    // last slice of the largest view seen.
+    std::map<std::array<std::uint32_t, 8>, std::uint32_t> slices;
     std::atomic<bool> any{false};
 };
 
@@ -808,11 +811,22 @@ std::uint32_t AllocatedLevels(const GuestTextureResource& resource) {
     return resource.allocatedMipCount != 0 ? resource.allocatedMipCount : resource.mipCount;
 }
 
-GuestTextureResource StorageSurface(const Context& context, const GuestTextureResource& viewed) {
+// The image a descriptor binds: the surface it is served from (its mip chain extended to the longest
+// view seen, its slices to the most; the viewed descriptor's own mip and slice counts are in `viewed`)
+// and, when a larger view of the same surface just appeared, the smaller surface whose image it
+// replaces.
+struct StorageSurfaceChoice {
+    GuestTextureResource surface;
+    std::optional<GuestTextureResource> outgrown;
+};
+
+StorageSurfaceChoice StorageSurface(const Context& context, const GuestTextureResource& viewed) {
     auto& surfaces = ExtendedChains();
     const bool extended = viewed.mipCount > AllocatedLevels(viewed);
-    if (!extended && !surfaces.any.load(std::memory_order_acquire)) return viewed;
-    auto surface = viewed;
+    const bool resizable = SlicesResizable(viewed);
+    if (!extended && !resizable && !surfaces.any.load(std::memory_order_acquire)) return {viewed, std::nullopt};
+    StorageSurfaceChoice choice{viewed, std::nullopt};
+    auto& surface = choice.surface;
     surface.mipCount = AllocatedLevels(viewed);
     const auto identity = SurfaceKey(context, surface);
     std::lock_guard lock(surfaces.mutex);
@@ -826,7 +840,20 @@ GuestTextureResource StorageSurface(const Context& context, const GuestTextureRe
     } else {
         surface.mipCount = viewed.mipCount;
     }
-    return surface;
+    if (resizable && surface.mipCount == 1) {
+        auto shape = surface;
+        shape.depthOrLastArray = 0;
+        const auto [it, inserted] = surfaces.slices.try_emplace(SurfaceKey(context, shape), viewed.depthOrLastArray);
+        if (viewed.depthOrLastArray > it->second) {
+            if (!inserted) {
+                choice.outgrown = surface;
+                choice.outgrown->depthOrLastArray = it->second;
+            }
+            it->second = viewed.depthOrLastArray;
+        }
+        surface.depthOrLastArray = it->second;
+    }
+    return choice;
 }
 
 std::shared_ptr<StorageTexture> lookupStorageTexture(const Context& context, const GuestTextureResource& viewed, std::uint32_t mip, std::uint64_t guestBytes);
@@ -855,7 +882,8 @@ std::shared_ptr<StorageTexture> lookupStorageTexture(const Context& context, con
     const bool profile = LookupOutcomes::Profiled();
     auto start = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     auto& counters = TextureCounts();
-    const auto resource = StorageSurface(context, viewed);
+    const auto choice = StorageSurface(context, viewed);
+    const auto& resource = choice.surface;
     const StorageKey key{context.device, SurfaceKey(context, resource)};
     auto& cache = StorageTextures();
     std::vector<std::shared_ptr<StorageTexture>> evicted;
@@ -866,6 +894,9 @@ std::shared_ptr<StorageTexture> lookupStorageTexture(const Context& context, con
             auto allocated = resource;
             allocated.mipCount = AllocatedLevels(resource);
             if (const auto found = findStorage(cache, {context.device, SurfaceKey(context, allocated)}); found != cache.entries.end()) evicted.push_back(evictStorage(cache, found));
+        }
+        if (choice.outgrown) {
+            if (const auto found = findStorage(cache, {context.device, SurfaceKey(context, *choice.outgrown)}); found != cache.entries.end()) evicted.push_back(evictStorage(cache, found));
         }
         auto it = findStorage(cache, key);
         if (it != cache.entries.end() && MetadataMoved(*it->texture, resource)) {
@@ -879,7 +910,7 @@ std::shared_ptr<StorageTexture> lookupStorageTexture(const Context& context, con
             counters.storageHits.fetch_add(1, std::memory_order_relaxed);
             if (profile) LookupOutcomes::Add(LookupOutcomes::StorageHit, start);
         } else {
-            if (guestBytes == 0) guestBytes = DescribeSurface(resource).guestBytes;
+            if (guestBytes == 0 || resource.depthOrLastArray != viewed.depthOrLastArray) guestBytes = DescribeSurface(resource).guestBytes;
             if (StorageTexture::FlushPending(resource.baseAddress, static_cast<std::size_t>(guestBytes), nullptr, "storage image creation", PublishScope::None) && profile) start = LookupOutcomes::Add(LookupOutcomes::PendingFlush, start);
             CachedStorageTexture entry{key, mip, std::make_shared<StorageTexture>(context, *context.detiler, resource, mip)};
             static const bool keepNew = std::getenv("APS5_NO_KEEP_NEW_STORAGE") == nullptr;
@@ -907,6 +938,10 @@ std::shared_ptr<StorageTexture> lookupStorageTexture(const Context& context, con
     return texture;
 }
 
+}
+
+std::uint32_t StorageViewLayers(const GuestTextureResource& viewed) {
+    return SlicesResizable(viewed) ? viewed.depthOrLastArray + 1u : 0u;
 }
 
 std::uint64_t TextureCacheBudget(const VkPhysicalDeviceMemoryProperties& memory) {
@@ -979,6 +1014,11 @@ void ClearCachedTextures(VkDevice device) {
             if (it->key.device == device) eraseTexture(sampled, it++);
             else ++it;
         }
+    }
+    {
+        auto& surfaces = ExtendedChains();
+        std::lock_guard lock(surfaces.mutex);
+        surfaces.slices.clear();
     }
     auto& storage = StorageTextures();
     std::lock_guard lock(storage.mutex);
@@ -1533,7 +1573,7 @@ void ShaderResources::buildComplete() {
                         write.pImageInfo = images.data() + images.size();
                         for (const auto index : binding.imageAllocations) {
                             if (index == std::numeric_limits<std::size_t>::max()) images.push_back(absentImage(binding.layout.binding));
-                            else images.push_back({VK_NULL_HANDLE, storageAtomic64[index] ? storageTextures[index]->Atomic64View(storageMips[index], storageFirstLayer[index]) : storageAtomic[index] ? storageTextures[index]->AtomicView(storageMips[index], storageFirstLayer[index]) : storageTextures[index]->StorageView(storageMips[index], storageFirstLayer[index]), VK_IMAGE_LAYOUT_GENERAL});
+                            else images.push_back({VK_NULL_HANDLE, storageAtomic64[index] ? storageTextures[index]->Atomic64View(storageMips[index], storageFirstLayer[index], storageLayers[index]) : storageAtomic[index] ? storageTextures[index]->AtomicView(storageMips[index], storageFirstLayer[index], storageLayers[index]) : storageTextures[index]->StorageView(storageMips[index], storageFirstLayer[index], storageLayers[index]), VK_IMAGE_LAYOUT_GENERAL});
                         }
                         Require(binding.imageAllocations.size() == binding.layout.descriptorCount, "descriptor allocations disagree with compact binding");
                         break;
@@ -3283,6 +3323,7 @@ void ShaderResources::resolveImageBinding(const ShaderRecompiler::DescriptorBind
         if (sameAsPrevious && StorageDedupeEnabled()) storageTextures.push_back(storageTextures.back());
         else storageTextures.push_back(cachedStorageTexture(context, words, resource, mip, guestBytes, true));
         storageMips.push_back(mip);
+        storageLayers.push_back(StorageViewLayers(resource));
         storageKeys.push_back(resource.dccAddress);
         storageFirstLayer.push_back(firstLayer);
         // Images the shader only reads have nothing to store back.
