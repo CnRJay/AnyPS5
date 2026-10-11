@@ -1086,7 +1086,6 @@ private:
             if (resource == std::numeric_limits<std::uint32_t>::max()) fail("buffer resource limit exceeded");
             AddMemoryPatch(memoryIndex, resource, 0u, false);
             memory.gpuDescriptor = false;
-            m_info.usesDma = m_info.usesDma || access == BufferAccess::Atomic;
             return true;
         }
         memory.gpuDescriptor = true;
