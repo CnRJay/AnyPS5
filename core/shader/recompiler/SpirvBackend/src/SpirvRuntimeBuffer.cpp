@@ -448,7 +448,9 @@ std::uint32_t formattedCall(SpirvValueEmitContext& context, const IrValue& instr
         };
         state.module.BeginHelperFunction();
         const Restore restore{state, element, label, byteOffset};
-        state.module.AddFunction(spv::OpFunction, resultType, id, spv::FunctionControlDontInlineMask, functionType);
+        // Shared in the module, but the driver may inline it: NVIDIA keeps DontInline functions as calls,
+        // which cost the Bink decode kernel 0x119a910000 a fifth of its time.
+        state.module.AddFunction(spv::OpFunction, resultType, id, spv::FunctionControlMaskNone, functionType);
         std::array<std::uint32_t, 6> parameters{};
         for (std::uint32_t index = 0; index < (store ? 6u : 5u); ++index) {
             parameters[index] = state.module.AllocateId();

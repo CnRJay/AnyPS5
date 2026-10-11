@@ -88,7 +88,7 @@ int main() {
         Check(one.calls == none.calls + 1 && one.functions == none.functions + 1, "formatted buffer once: one formatted load emitted " + std::to_string(one.calls - none.calls) + " calls and " + std::to_string(one.functions - none.functions) + " functions more than none, expected one call to one shared function");
         Check(three.calls == one.calls + 2 && three.functions == one.functions, "formatted buffer once: two more formatted loads from the same descriptor emitted " + std::to_string(three.calls - one.calls) + " calls and " + std::to_string(three.functions - one.functions) + " functions more, expected two calls and no function");
         Check(three.switches == one.switches, "formatted buffer once: two more formatted loads from the same descriptor emitted " + std::to_string(three.switches - one.switches) + " more format switches");
-        Check(one.notInlined == none.notInlined + 1, "formatted buffer once: the shared formatted access function may be inlined back into its callers");
+        Check(one.notInlined == none.notInlined, "formatted buffer once: the shared formatted access function is marked DontInline, which drivers keep as a call");
         const auto storeOne = Compile(1, true);
         const auto storeThree = Compile(3, true);
         Check(storeOne.functions == none.functions + 2 && storeOne.calls == none.calls + 2, "formatted buffer once: a formatted load and a formatted store to another resource emitted " + std::to_string(storeOne.functions - none.functions) + " functions and " + std::to_string(storeOne.calls - none.calls) + " calls more than none, expected one function and one call each");
