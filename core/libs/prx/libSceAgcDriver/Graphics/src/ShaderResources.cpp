@@ -796,8 +796,8 @@ std::array<std::uint32_t, 8> SurfaceKey(const Context& context, const GuestTextu
 struct ExtendedSurfaces {
     std::mutex mutex;
     std::map<std::array<std::uint32_t, 8>, std::uint32_t> levels;
-    // Per surface of SlicesResizable descriptors (the slice count left out of the identity): the
-    // last slice of the largest view seen.
+    // Per surface of SlicesResizable descriptors (the first and last slice left out of the identity):
+    // the last slice of the largest view seen.
     std::map<std::array<std::uint32_t, 8>, std::uint32_t> slices;
     std::atomic<bool> any{false};
 };
@@ -812,7 +812,7 @@ std::uint32_t AllocatedLevels(const GuestTextureResource& resource) {
 }
 
 // The image a descriptor binds: the surface it is served from (its mip chain extended to the longest
-// view seen, its slices to the most; the viewed descriptor's own mip and slice counts are in `viewed`)
+// view seen, its slices from 0 to the last of any view; the viewed descriptor's own are in `viewed`)
 // and, when a larger view of the same surface just appeared, the smaller surface whose image it
 // replaces.
 struct StorageSurfaceChoice {
@@ -843,15 +843,18 @@ StorageSurfaceChoice StorageSurface(const Context& context, const GuestTextureRe
     if (resizable && surface.mipCount == 1) {
         auto shape = surface;
         shape.depthOrLastArray = 0;
+        shape.baseArray = 0;
         const auto [it, inserted] = surfaces.slices.try_emplace(SurfaceKey(context, shape), viewed.depthOrLastArray);
         if (viewed.depthOrLastArray > it->second) {
             if (!inserted) {
                 choice.outgrown = surface;
                 choice.outgrown->depthOrLastArray = it->second;
+                choice.outgrown->baseArray = 0;
             }
             it->second = viewed.depthOrLastArray;
         }
         surface.depthOrLastArray = it->second;
+        surface.baseArray = 0;
     }
     return choice;
 }
@@ -940,8 +943,8 @@ std::shared_ptr<StorageTexture> lookupStorageTexture(const Context& context, con
 
 }
 
-std::uint32_t StorageViewLayers(const GuestTextureResource& viewed) {
-    return SlicesResizable(viewed) ? viewed.depthOrLastArray + 1u : 0u;
+LayerRange StorageViewLayers(const GuestTextureResource& viewed) {
+    return SlicesResizable(viewed) ? LayerRange{viewed.baseArray, viewed.depthOrLastArray - viewed.baseArray + 1u} : LayerRange{};
 }
 
 std::uint64_t TextureCacheBudget(const VkPhysicalDeviceMemoryProperties& memory) {

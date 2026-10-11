@@ -41,8 +41,13 @@ constexpr std::size_t SliceBytes = 65536;
 constexpr std::size_t BlockBytes = SliceBytes * Slices;
 constexpr std::uint32_t Initial = 0x5a5a5a5au;
 
-alignas(256) constexpr std::array<std::uint32_t, 6> StoreCode{
+// image_store of s12 at (v0, 0, s13) of a 2D array shape, and at (v0, 0) of a 2D shape.
+alignas(256) constexpr std::array<std::uint32_t, 6> StoreArrayCode{
     0x7e020280, 0x7e04020d, 0x7e06020c, 0xf0201128, 0x00010300, 0xbf810000,
+};
+
+alignas(256) constexpr std::array<std::uint32_t, 5> StoreFlatCode{
+    0x7e020280, 0x7e04020c, 0xf0201108, 0x00010200, 0xbf810000,
 };
 
 std::uint64_t AddressOf(const void* data) {
@@ -95,27 +100,29 @@ private:
     std::uint8_t* block = nullptr;
 };
 
-std::array<std::uint32_t, 8> TextureDescriptor(const std::uint8_t* texels, std::uint32_t slices) {
+std::array<std::uint32_t, 8> TextureDescriptor(const std::uint8_t* texels, std::uint32_t first, std::uint32_t last) {
     const auto address = AddressOf(texels);
     return {
         static_cast<std::uint32_t>(address >> 8u),
         static_cast<std::uint32_t>((address >> 40u) & 0xffu) | (Format32UInt << 20u) | (((Side - 1u) & 3u) << 30u),
         ((Side - 1u) >> 2u) | ((Side - 1u) << 14u),
         0xfacu | (TileR64KBX << 20u) | (Type2DArray << 28u),
-        slices - 1u,
+        last | (first << 16u),
         0u,
         0u,
         0u,
     };
 }
 
-void Store(AgcDriver::VulkanDevice& device, const std::uint8_t* texels, std::uint32_t slices, std::uint32_t slice, std::uint32_t value) {
+// Stores through a descriptor of slices `first` through `last`, at its slice `slice` (a flat shape stores
+// to its first slice).
+void Store(AgcDriver::VulkanDevice& device, const std::uint8_t* texels, std::uint32_t first, std::uint32_t last, bool flat, std::uint32_t slice, std::uint32_t value) {
     std::vector<std::uint32_t> userData(16, 0u);
-    const auto texture = TextureDescriptor(texels, slices);
+    const auto texture = TextureDescriptor(texels, first, last);
     std::copy(texture.begin(), texture.end(), userData.begin() + 4);
     userData[12] = value;
     userData[13] = slice;
-    const std::span<const std::uint32_t> code(StoreCode);
+    const std::span<const std::uint32_t> code = flat ? std::span<const std::uint32_t>(StoreFlatCode) : std::span<const std::uint32_t>(StoreArrayCode);
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
     const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
     ShaderRecompiler::RecompileRequest request{
@@ -139,29 +146,33 @@ void RequireSlice(const std::uint8_t* texels, std::uint32_t slice, std::uint32_t
 
 void Run(AgcDriver::VulkanDevice& device, std::uint8_t* texels) {
     const auto surface = AddressOf(texels);
-    constexpr std::uint64_t smallBytes = SliceBytes * 2u;
+    const auto bytes = [](std::uint32_t slices) { return std::uint64_t{SliceBytes} * slices; };
     std::fill_n(reinterpret_cast<std::uint32_t*>(texels), BlockBytes / 4u, Initial);
     AgcDriver::GuestMemory::CollectWrites(surface, BlockBytes);
     AgcDriver::GuestMemory::BumpCollectEpoch();
     std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
-    Store(device, texels, 2, 1, 0x11111111u);
-    Require(StorageTexture::FindLive(surface, smallBytes) != nullptr && StorageTexture::FindLive(surface, BlockBytes) == nullptr, "the two-slice store did not make an image of two slices");
-    Store(device, texels, 4, 3, 0x22222222u);
+    Store(device, texels, 1, 1, false, 0, 0x11111111u);
+    Require(StorageTexture::FindLive(surface, bytes(2)) != nullptr, "the store through slice 1 did not make an image of the slices up to it");
+    Store(device, texels, 2, 2, true, 0, 0x55555555u);
+    Require(StorageTexture::FindLive(surface, bytes(3)) != nullptr && StorageTexture::FindLive(surface, bytes(2)) == nullptr, "the flat store through slice 2 did not replace the image of slices 0 and 1");
+    Store(device, texels, 0, 3, false, 0, 0x33333333u);
     const auto large = StorageTexture::FindLive(surface, BlockBytes);
-    Require(large != nullptr && StorageTexture::FindLive(surface, smallBytes) == nullptr, "the four-slice store did not replace the two-slice image");
-    Store(device, texels, 2, 0, 0x33333333u);
-    Store(device, texels, 4, 2, 0x44444444u);
-    Store(device, texels, 2, 1, 0x11111111u);
-    Require(StorageTexture::FindLive(surface, BlockBytes) == large && StorageTexture::FindLive(surface, smallBytes) == nullptr, "a two-slice store after the four-slice one did not use its image");
+    Require(large != nullptr && StorageTexture::FindLive(surface, bytes(3)) == nullptr, "the store through every slice did not replace the smaller image");
+    Store(device, texels, 3, 3, false, 0, 0x66666666u);
     StorageTexture::FlushPending(surface, BlockBytes, nullptr, "test");
     device.WaitIdle();
-    RequireSlice(texels, 0, 0x33333333u, "stores through both views");
-    RequireSlice(texels, 1, 0x11111111u, "stores through both views");
-    RequireSlice(texels, 2, 0x44444444u, "stores through both views");
-    RequireSlice(texels, 3, 0x22222222u, "stores through both views");
-    AgcDriver::Graphics::ClearCachedTextures(device.Device());
+    RequireSlice(texels, 3, 0x66666666u, "the store through slice 3 alone");
+    Store(device, texels, 2, 3, false, 1, 0x22222222u);
+    Store(device, texels, 1, 1, false, 0, 0x11111111u);
+    Require(StorageTexture::FindLive(surface, BlockBytes) == large && StorageTexture::FindLive(surface, bytes(3)) == nullptr && StorageTexture::FindLive(surface, bytes(2)) == nullptr, "a store through fewer slices after the largest view did not use its image");
+    StorageTexture::FlushPending(surface, BlockBytes, nullptr, "test");
+    device.WaitIdle();
+    const std::string steps = "stores through slices 1, 2, 0 through 3, 3 and 2 through 3";
+    RequireSlice(texels, 0, 0x33333333u, steps);
+    RequireSlice(texels, 1, 0x11111111u, steps);
+    RequireSlice(texels, 2, 0x55555555u, steps);
+    RequireSlice(texels, 3, 0x22222222u, steps);    AgcDriver::Graphics::ClearCachedTextures(device.Device());
 }
-
 }
 
 int main() {
