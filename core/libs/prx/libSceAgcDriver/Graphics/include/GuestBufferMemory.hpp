@@ -6,6 +6,7 @@
 #include "prx/libc/include/GuestAllocations.hpp"
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,6 +18,12 @@ void ShutdownGuestBufferWorkers();
 struct GuestMemorySnapshot {
     std::uint64_t address;
     std::span<const std::byte> bytes;
+};
+
+// Captured words that no longer equal guest memory at the build (the guest or a write-back changed
+// them after the capture): the work is captured again rather than run with stale baked words.
+struct GuestSnapshotChanged : std::runtime_error {
+    using std::runtime_error::runtime_error;
 };
 
 // A guest allocation imported with VK_EXT_external_memory_host, usable by the GPU in place.

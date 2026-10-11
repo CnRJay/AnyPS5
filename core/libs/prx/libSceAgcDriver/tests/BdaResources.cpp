@@ -895,6 +895,20 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
     GuestBufferMemory overflow(context);
     const std::array<std::byte, 8> source{};
     reject([&] { overflow.AddSnapshot({std::numeric_limits<std::uint64_t>::max() - 3, source}); }, "overflow");
+    {
+        std::array<std::uint32_t, 4> live{1, 2, 3, 4};
+        GuestBufferMemory moved(context);
+        moved.AddWritable(reinterpret_cast<std::uintptr_t>(live.data()), sizeof(live));
+        const std::array<std::uint32_t, 2> captured{1, 9};
+        bool recapture = false;
+        try {
+            moved.AddSnapshot({reinterpret_cast<std::uintptr_t>(live.data()), std::as_bytes(std::span(captured))});
+        } catch (const GuestSnapshotChanged&) {
+            recapture = true;
+        }
+        Require(recapture, "a capture that memory no longer matches did not ask for a new capture");
+        moved.AddSnapshot({reinterpret_cast<std::uintptr_t>(live.data()), std::as_bytes(std::span(live).first(2))});
+    }
 
     const std::array<GuestMemorySnapshot, 1> snapshots{{{0x7fff12340000ULL, source}}};
     ShaderRecompiler::RecompileResult shader;

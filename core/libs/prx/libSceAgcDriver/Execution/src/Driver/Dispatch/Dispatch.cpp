@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Diagnostics.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Shaders/ShaderRegistry.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GuestBufferMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
 #include "Optimization/ResourceProgram.hpp"
@@ -340,6 +341,18 @@ void Driver::dispatch(QueueState& queue, std::span<const std::uint32_t> packet, 
     const auto rethrow = [&](const std::exception& error) {
         if (fromAhead) {
             ++groupStats.deviceRejects;
+            dispatch(queue, packet, submission, indirectArguments);
+            return true;
+        }
+        // Memory moved under the capture: captured again, a few times, before giving up.
+        thread_local int recaptures = 0;
+        if (dynamic_cast<const Graphics::GuestSnapshotChanged*>(&error) != nullptr && recaptures < 4) {
+            static std::atomic<int> reported{0};
+            if (reported.fetch_add(1, std::memory_order_relaxed) < 8) std::fprintf(stderr, "[gpu] compute shader 0x%llx: %s; captured again\n", static_cast<unsigned long long>(address), error.what());
+            ++recaptures;
+            struct Restore {
+                ~Restore() { --recaptures; }
+            } restore;
             dispatch(queue, packet, submission, indirectArguments);
             return true;
         }

@@ -6,6 +6,7 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Synchronization/DeferredLabels.hpp"
 #include "prx/libSceAgcDriver/Execution/include/CaptureTrace.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GuestBufferMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Eq/include/Event.hpp"
@@ -272,7 +273,19 @@ void Driver::execute(const Submission& submission) {
 
                 try {
                     std::string rejected;
-                    const auto verdict = draw(queue, packet, submission, rejected);
+                    DrawVerdict verdict{};
+                    // Memory moved under the capture: the draw is captured again, a few times.
+                    for (int attempt = 0;; ++attempt) {
+                        try {
+                            verdict = draw(queue, packet, submission, rejected);
+                            break;
+                        } catch (const Graphics::GuestSnapshotChanged& changed) {
+                            if (attempt >= 3) throw;
+                            static std::atomic<int> reported{0};
+                            if (reported.fetch_add(1, std::memory_order_relaxed) < 8) std::fprintf(stderr, "[gpu] draw: %s; captured again\n", changed.what());
+                            rejected.clear();
+                        }
+                    }
                     drawn = verdict == DrawVerdict::Drawn;
                     CaptureTrace::Log("draw submission=%llu queue=%x offset=%zu target=%llx mask=%x verdict=%d reason=%.256s", static_cast<unsigned long long>(submission.serial), submission.queue, cursor, static_cast<unsigned long long>(color), readRegister(queue.context, 0x8e), static_cast<int>(verdict), rejected.c_str());
                     if (verdict == DrawVerdict::Rejected) {
