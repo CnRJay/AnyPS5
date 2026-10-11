@@ -339,7 +339,10 @@ void NoteDepthStorage(const Context& context, const std::shared_ptr<StorageTextu
         // A title reusing the memory every frame would print this per frame (unbuffered stderr).
         static std::atomic<int> reports{0};
         if (reports.fetch_add(1, std::memory_order_relaxed) < 16) std::fprintf(stderr, "[gpu] depth surface 0x%llx (%ux%u) reused as a %ux%u storage image of vk format %d: the depth surface is forgotten\n", static_cast<unsigned long long>(target.address), target.extent.width, target.extent.height, resource.width, resource.height, static_cast<int>(format));
-        surfaces().erase(std::next(found).base());
+        const auto erased = surfaces().begin() + (std::next(found).base() - list.begin());
+        // Recorded or in-flight work may still use the surface's image: it goes with the open batch.
+        if (auto* recorder = Recorder::Active()) recorder->Keep(std::shared_ptr<DepthSurface>(std::move(*erased)));
+        surfaces().erase(erased);
         return;
     }
     if (format != expected || mip != 0 || resource.dimension != TextureDimension::k2D || resource.baseArray != 0 || resource.width != target.extent.width || resource.height != target.extent.height) {
