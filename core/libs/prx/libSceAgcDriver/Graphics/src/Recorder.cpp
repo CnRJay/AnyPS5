@@ -1341,7 +1341,8 @@ void Recorder::CountSync(int source, const void* site) {
     if (source < 0 || source >= 5) return;
     ++syncCounts[source];
     announcedSource = source;
-    announcedSite = site;
+    // Unnamed: the caller announcing the sync names it in the [recorder] sync sites.
+    announcedSite = site != nullptr ? site : __builtin_return_address(0);
 }
 
 void Recorder::AnnounceSyncSite(const void* site) {
