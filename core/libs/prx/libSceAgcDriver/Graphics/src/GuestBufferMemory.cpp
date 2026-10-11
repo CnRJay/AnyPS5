@@ -2198,7 +2198,7 @@ void GuestBufferMemory::addDescriptorRegion(std::uint64_t address, std::size_t b
 }
 
 bool GuestBufferMemory::servesView(const Region& region, std::uint64_t view) {
-    return region.mirror == nullptr || !region.mirror->sparse || view + 4 <= region.mirror->base + region.mirror->bytes;
+    return region.mirror == nullptr || view + 4 <= region.mirror->base + region.mirror->bytes;
 }
 
 bool GuestBufferMemory::sparseHeapCandidate(const Region& region) {
@@ -2206,7 +2206,9 @@ bool GuestBufferMemory::sparseHeapCandidate(const Region& region) {
 }
 
 bool GuestBufferMemory::bindSparseMirror(Region& region, const GuestAllocations::Lease& lease) {
-    const auto* range = containingRange(lease, region.begin, region.end);
+    const auto backedEnd = region.backed.empty() ? region.begin : region.backed.back().second;
+    const auto neededEnd = std::min(region.end, std::max(backedEnd, std::max(region.lastView, region.begin) + 4u));
+    const auto* range = containingRange(lease, region.begin, neededEnd);
     if (range == nullptr || !range->releasable) return false;
     std::vector<RefreshBlock> blocks;
     std::shared_ptr<ImageMirror> mirror;
@@ -2217,14 +2219,19 @@ bool GuestBufferMemory::bindSparseMirror(Region& region, const GuestAllocations:
         if (reported.fetch_add(1, std::memory_order_relaxed) < 4) std::fprintf(stderr, "[gpu] %s; copying the sparse heap instead\n", error.what());
         return false;
     }
+    if (mirror != nullptr && mirror->heap && !mirror->sparse) {
+        std::vector<ImageMirror*> whole{mirror.get()};
+        refreshHeapMirrors(whole, blocks);
+    }
     compareBlocks(blocks);
-    if (mirror == nullptr || !mirror->sparse || region.begin < mirror->base || (region.begin - mirror->base) % context.limits.minStorageBufferOffsetAlignment != 0) return false;
+    if (mirror == nullptr || !mirror->heap || region.begin < mirror->base || (region.begin - mirror->base) % context.limits.minStorageBufferOffsetAlignment != 0) return false;
     region.mirror = std::move(mirror);
     if (!servesView(region, std::max(region.lastView, region.begin))) {
         region.mirror = nullptr;
         return false;
     }
-    region.backed = clipPieces(region.mirror->committed, region.begin, region.end);
+    if (region.mirror->sparse) region.backed = clipPieces(region.mirror->committed, region.begin, region.end);
+    else region.backed = clipPieces({{region.mirror->base, region.mirror->base + region.mirror->bytes}}, region.begin, region.end);
     region.snapshot.clear();
     std::lock_guard lock(Mirrors().mutex);
     ++Mirrors().sparseBinds;
