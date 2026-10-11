@@ -278,16 +278,47 @@ std::uint32_t formatted(SpirvValueEmitContext& context, const IrValue& instructi
     if (store) {
         const auto values = storeValues(state, data, components);
         EmitIfCondition(state, inBounds, [&] {
-            auto packed = ConstantU32(state, 0u);
+            std::array<std::uint32_t, 4> encoded{};
             for (std::uint32_t component = 0; component < info.componentCount; ++component) {
-                const auto encoded = component >= components ? ConstantU32(state, 0u) : memory.d16 ? EmitD16StoreComponent(state, info, component, values[component]) : EmitFormatStoreComponent(state, info, component, values[component]);
-                if (info.packedBitfield) {
-                    packed = EmitOrU32(state, packed, Binary(state, spv::OpShiftLeftLogical, u32, EmitAndConstant(state, encoded, (1u << info.componentBits[component]) - 1u), ConstantU32(state, info.componentBitOffset[component])));
-                } else {
-                    writeBuffer(context, instruction, addresses[component].guest, encoded, info.componentBits[component]);
-                }
+                encoded[component] = component >= components ? ConstantU32(state, 0u) : memory.d16 ? EmitD16StoreComponent(state, info, component, values[component]) : EmitFormatStoreComponent(state, info, component, values[component]);
             }
-            if (info.packedBitfield) writeBuffer(context, instruction, addresses[0].guest, packed);
+            if (info.packedBitfield) {
+                auto packed = ConstantU32(state, 0u);
+                for (std::uint32_t component = 0; component < info.componentCount; ++component) {
+                    packed = EmitOrU32(state, packed, Binary(state, spv::OpShiftLeftLogical, u32, EmitAndConstant(state, encoded[component], (1u << info.componentBits[component]) - 1u), ConstantU32(state, info.componentBitOffset[component])));
+                }
+                writeBuffer(context, instruction, addresses[0].guest, packed);
+                return;
+            }
+            // Components that fill one dword of the element between them are written as that dword when
+            // their addresses land in it in order: a plain store instead of a read-modify-write per component.
+            for (std::uint32_t first = 0; first < info.componentCount;) {
+                const auto word = GetFormatComponentByteOffset(info, first) / 4u;
+                auto end = first;
+                std::uint32_t bytes = 0;
+                for (; end < info.componentCount && GetFormatComponentByteOffset(info, end) / 4u == word; ++end) bytes += info.componentBits[end] / 8u;
+                const auto separate = [&, first, end] {
+                    for (auto component = first; component < end; ++component) writeBuffer(context, instruction, addresses[component].guest, encoded[component], info.componentBits[component]);
+                };
+                if (end - first < 2u || bytes != 4u) {
+                    separate();
+                    first = end;
+                    continue;
+                }
+                const bool wide = memory.gpuDescriptor;
+                const auto addressType = wide ? TypeScalarU64(state) : u32;
+                const auto addressConstant = [&](std::uint32_t value) { return wide ? BdaConstant(state, value) : ConstantU32(state, value); };
+                const auto base = addresses[first].guest;
+                auto inWord = equal(state, Binary(state, spv::OpBitwiseAnd, addressType, base, addressConstant(3u)), addressConstant(0u));
+                auto packed = ConstantU32(state, 0u);
+                for (auto component = first; component < end; ++component) {
+                    const auto byte = GetFormatComponentByteOffset(info, component) - word * 4u;
+                    if (component != first) inWord = both(state, inWord, equal(state, addresses[component].guest, Binary(state, spv::OpIAdd, addressType, base, addressConstant(byte))));
+                    packed = EmitOrU32(state, packed, Binary(state, spv::OpShiftLeftLogical, u32, EmitAndConstant(state, encoded[component], (1u << info.componentBits[component]) - 1u), ConstantU32(state, byte * 8u)));
+                }
+                EmitIfElseCondition(state, inWord, [&] { writeBuffer(context, instruction, base, packed); }, separate);
+                first = end;
+            }
         });
         return ConstantU32(state, 0u);
     }
@@ -417,7 +448,9 @@ std::uint32_t formattedCall(SpirvValueEmitContext& context, const IrValue& instr
         };
         state.module.BeginHelperFunction();
         const Restore restore{state, element, label, byteOffset};
-        state.module.AddFunction(spv::OpFunction, resultType, id, spv::FunctionControlDontInlineMask, functionType);
+        // Shared in the module, but the driver may inline it: NVIDIA keeps DontInline functions as calls,
+        // which cost the Bink decode kernel 0x119a910000 a fifth of its time.
+        state.module.AddFunction(spv::OpFunction, resultType, id, spv::FunctionControlMaskNone, functionType);
         std::array<std::uint32_t, 6> parameters{};
         for (std::uint32_t index = 0; index < (store ? 6u : 5u); ++index) {
             parameters[index] = state.module.AllocateId();

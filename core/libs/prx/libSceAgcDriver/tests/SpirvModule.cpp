@@ -223,8 +223,59 @@ void testStructExtractsAreNotShuffled() {
     }
 }
 
+void testFoldedConstantsAreDeclaredOnce() {
+    const auto op = [](std::uint32_t count, spv::Op code) { return (count << 16u) | static_cast<std::uint32_t>(code); };
+    const std::vector<std::uint32_t> words{
+        spv::MagicNumber, 0x00010300u, 0u, 30u, 0u,
+        op(2, spv::OpCapability), spv::CapabilityShader,
+        op(3, spv::OpMemoryModel), spv::AddressingModelLogical, spv::MemoryModelGLSL450,
+        op(6, spv::OpEntryPoint), spv::ExecutionModelGLCompute, 10u, 0x6e69616du, 0u, 9u,
+        op(6, spv::OpExecutionMode), 10u, spv::ExecutionModeLocalSize, 1u, 1u, 1u,
+        op(2, spv::OpTypeVoid), 1u,
+        op(4, spv::OpTypeInt), 2u, 32u, 0u,
+        op(2, spv::OpTypeBool), 3u,
+        op(4, spv::OpTypePointer), 5u, spv::StorageClassPrivate, 2u,
+        op(3, spv::OpTypeFunction), 6u, 1u,
+        op(4, spv::OpConstant), 2u, 7u, 1u,
+        op(4, spv::OpConstant), 2u, 8u, 2u,
+        op(3, spv::OpConstantTrue), 3u, 4u,
+        op(4, spv::OpVariable), 5u, 9u, spv::StorageClassPrivate,
+        op(5, spv::OpFunction), 1u, 10u, 0u, 6u,
+        op(2, spv::OpLabel), 11u,
+        op(5, spv::OpIAdd), 2u, 12u, 7u, 7u,
+        op(5, spv::OpIAdd), 2u, 13u, 7u, 8u,
+        op(5, spv::OpISub), 2u, 14u, 8u, 7u,
+        op(5, spv::OpIAdd), 2u, 15u, 13u, 7u,
+        op(5, spv::OpIAdd), 2u, 16u, 14u, 13u,
+        op(5, spv::OpULessThan), 3u, 17u, 7u, 8u,
+        op(6, spv::OpSelect), 2u, 18u, 17u, 12u, 7u,
+        op(3, spv::OpStore), 9u, 12u,
+        op(3, spv::OpStore), 9u, 14u,
+        op(3, spv::OpStore), 9u, 15u,
+        op(3, spv::OpStore), 9u, 16u,
+        op(3, spv::OpStore), 9u, 18u,
+        op(1, spv::OpReturn),
+        op(1, spv::OpFunctionEnd),
+    };
+    const auto specialized = ShaderRecompiler::SpecializeSpirv(words);
+    std::map<std::uint32_t, std::size_t> declarations;
+    std::size_t booleans = 0;
+    std::vector<std::uint32_t> stored;
+    for (std::size_t cursor = 5; cursor < specialized.size(); cursor += specialized[cursor] >> 16u) {
+        if ((specialized[cursor] >> 16u) == 0u) break;
+        const auto opcode = specialized[cursor] & 0xffffu;
+        if (opcode == spv::OpConstant) ++declarations[specialized[cursor + 3u]];
+        if (opcode == spv::OpConstantTrue || opcode == spv::OpConstantFalse) ++booleans;
+        if (opcode == spv::OpStore) stored.push_back(specialized[cursor + 2u]);
+    }
+    check(declarations.size() == 3u && declarations[1u] == 1u && declarations[2u] == 1u && declarations[4u] == 1u, "folded values were not declared once each, or a value only folded values used was kept");
+    check(booleans == 1u, "a folded comparison declared another boolean constant");
+    check(stored == std::vector<std::uint32_t>{8u, 7u, stored.size() > 2u ? stored[2] : 0u, stored.size() > 2u ? stored[2] : 0u, 8u}, "uses of folded values do not name the one declaration of their value");
+}
+
 int main() {
     testStructExtractsAreNotShuffled();
+    testFoldedConstantsAreDeclaredOnce();
     testRepeatedTypesShareOneId();
     testOperandShapesDoNotCollide();
     testOperandKindsAgree();

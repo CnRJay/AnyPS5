@@ -243,8 +243,14 @@ public:
             if (op == spv::OpTypeBool) types.emplace(instruction.at(1), ScalarType{1u, true});
             if (op == spv::OpTypeInt) types.emplace(instruction.at(1), ScalarType{instruction.at(2), false});
             if (op == spv::OpTypeVector) vectorTypes.insert(instruction.at(1));
-            if (op == spv::OpConstant && types.contains(instruction.at(1)) && types.at(instruction[1]).width <= 32u) values.emplace(instruction.at(2), instruction.at(3));
-            if (op == spv::OpConstantTrue || op == spv::OpConstantFalse) values.emplace(instruction.at(2), op == spv::OpConstantTrue ? 1u : 0u);
+            if (op == spv::OpConstant && types.contains(instruction.at(1)) && types.at(instruction[1]).width <= 32u) {
+                values.emplace(instruction.at(2), instruction.at(3));
+                canonical.emplace(std::pair{instruction[1], instruction[3]}, instruction[2]);
+            }
+            if (op == spv::OpConstantTrue || op == spv::OpConstantFalse) {
+                values.emplace(instruction.at(2), op == spv::OpConstantTrue ? 1u : 0u);
+                canonical.emplace(std::pair{instruction[1], op == spv::OpConstantTrue ? 1u : 0u}, instruction[2]);
+            }
             cursor += count;
         }
     }
@@ -258,6 +264,7 @@ public:
         }
         removeDeadComputations();
         orderPhis();
+        removeUnusedConstants();
         std::vector<std::uint32_t> words = header;
         bool inserted = false;
         for (const auto& instruction : instructions) {
@@ -371,9 +378,19 @@ private:
             }
             const auto result = evaluate(instruction);
             if (!result) continue;
+            if (op == spv::OpCopyObject && constantIds.contains(instruction[3])) continue;
             const auto type = types.at(instruction[1]);
             const auto bits = type.width == 32u ? *result : *result & ((1u << type.width) - 1u);
             values[instruction[2]] = bits;
+            // One declaration per value: a later fold to the same value copies it (propagateCopies then
+            // substitutes the declaration) instead of declaring a duplicate.
+            const auto [existing, inserted] = canonical.emplace(std::pair{instruction[1], bits}, instruction[2]);
+            constantIds.insert(existing->second);
+            if (!inserted) {
+                instruction = Make(spv::OpCopyObject, {instruction[1], instruction[2], existing->second});
+                changed = true;
+                continue;
+            }
             constants.push_back(type.boolean ? Make(bits != 0u ? spv::OpConstantTrue : spv::OpConstantFalse, {instruction[1], instruction[2]}) : Make(spv::OpConstant, {instruction[1], instruction[2], bits}));
             instruction.clear();
             changed = true;
@@ -609,9 +626,27 @@ private:
         }
     }
 
+    // Folded values that only fed other folded values are referenced by nothing left in the module.
+    void removeUnusedConstants() {
+        std::set<std::uint32_t> referenced;
+        for (const auto& instruction : instructions) {
+            if (instruction.empty()) continue;
+            const auto op = Opcode(instruction);
+            if (op == spv::OpName || op == spv::OpMemberName || op == spv::OpDecorate || op == spv::OpMemberDecorate) continue;
+            referenced.insert(instruction.begin() + 1, instruction.end());
+        }
+        std::erase_if(constants, [&](const Instruction& constant) {
+            if (referenced.contains(constant[2])) return false;
+            removed.insert(constant[2]);
+            return true;
+        });
+    }
+
     std::vector<std::uint32_t> header;
     std::vector<Instruction> instructions;
     std::vector<Instruction> constants;
+    std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> canonical;
+    std::set<std::uint32_t> constantIds;
     std::map<std::uint32_t, ScalarType> types;
     std::map<std::uint32_t, std::uint32_t> values;
     std::map<std::uint32_t, std::uint32_t> resultTypes;

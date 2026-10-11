@@ -171,6 +171,22 @@ void EmitIfCondition(SpirvEmitterState& state, std::uint32_t condition, TFunctio
     EmitLabel(state, mergeLabel);
 }
 
+template<typename TThen, typename TElse>
+void EmitIfElseCondition(SpirvEmitterState& state, std::uint32_t condition, TThen&& thenFunction, TElse&& elseFunction) {
+    const auto thenLabel = state.module.AllocateId();
+    const auto elseLabel = state.module.AllocateId();
+    const auto mergeLabel = state.module.AllocateId();
+    state.module.AddFunction(spv::OpSelectionMerge, mergeLabel, spv::SelectionControlMaskNone);
+    state.module.AddFunction(spv::OpBranchConditional, condition, thenLabel, elseLabel);
+    EmitLabel(state, thenLabel);
+    thenFunction();
+    state.module.AddFunction(spv::OpBranch, mergeLabel);
+    EmitLabel(state, elseLabel);
+    elseFunction();
+    state.module.AddFunction(spv::OpBranch, mergeLabel);
+    EmitLabel(state, mergeLabel);
+}
+
 template<typename TFunction>
 std::uint32_t EmitValueOrDefaultIfCondition(SpirvEmitterState& state, std::uint32_t condition, std::uint32_t type, std::uint32_t defaultValue, TFunction&& function) {
     const auto thenLabel = state.module.AllocateId();
