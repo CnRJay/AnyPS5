@@ -88,6 +88,13 @@ struct GuestTextureResource {
     std::uint32_t allocatedMipCount = 0;
 };
 
+// A 2D array of one allocated mip level: its slices lie one level's tiled bytes apart whatever their
+// count, so descriptors of the same memory that differ only in slice count share one storage image
+// of the most slices (StorageSurface), each viewing its own.
+inline bool SlicesResizable(const GuestTextureResource& resource) {
+    return resource.dimension == TextureDimension::k2DArray && resource.baseArray == 0 && resource.mipCount == 1 && (resource.allocatedMipCount == 0 || resource.allocatedMipCount == 1);
+}
+
 float EffectiveMinLod(const GuestTextureResource& resource);
 
 GuestTextureResource DecodeTextureResource(std::span<const std::uint32_t> words);

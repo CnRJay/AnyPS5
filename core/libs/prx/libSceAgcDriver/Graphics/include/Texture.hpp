@@ -150,12 +150,17 @@ public:
     VkImageView View() const;
     // The image holds every mip of the surface; one storage view per written mip is made on demand,
     // so successive mip writes of a chain share one image and one write-back.
-    VkImageView View(std::uint32_t mip);
+    // `layers` is the number of array layers a view covers from BASE_ARRAY (0: all of the image's):
+    // a descriptor of fewer slices than the image (see StorageSurface) sees only its own, so image
+    // size queries and out-of-range slices behave as on its own image.
+    VkImageView View(std::uint32_t mip, std::uint32_t layers = 0);
     VkImageView FirstLayerView(std::uint32_t mip);
-    VkImageView StorageView(std::uint32_t mip, bool firstLayer);
+    VkImageView StorageView(std::uint32_t mip, bool firstLayer, std::uint32_t layers = 0);
     VkImageView ElementView();
-    VkImageView AtomicView(std::uint32_t mip, bool firstLayer);
-    VkImageView Atomic64View(std::uint32_t mip, bool firstLayer);
+    // The array layers a view this image made covers (0 for any other handle).
+    std::uint32_t ViewLayers(VkImageView view) const;
+    VkImageView AtomicView(std::uint32_t mip, bool firstLayer, std::uint32_t layers = 0);
+    VkImageView Atomic64View(std::uint32_t mip, bool firstLayer, std::uint32_t layers = 0);
     // Render targets live in the same images: draws attach mip 0 through a view of the color
     // buffer's format and mark the image dirty like a storage write.
     bool Attachable() const { return attachable; }
@@ -460,7 +465,9 @@ private:
     // saying whether any live image overlaps the fill (see Texture.cpp).
     bool keysFillMatches(std::uint64_t address, std::size_t bytes, bool overlapped) const;
     bool pendingUnitInside(std::uint64_t address, std::size_t bytes) const;
-    VkImageView createView(std::uint32_t mip, bool firstLayer, VkFormat format) const;
+    VkImageView createView(std::uint32_t mip, bool firstLayer, VkFormat format, std::uint32_t layers = 0) const;
+    // `layers` as the views take it, 0 when it covers the whole image.
+    std::uint32_t viewedLayers(std::uint32_t layers) const;
     bool singlePass();
     VkImageView elementLayerView(std::uint32_t level, std::uint32_t layer);
     void recordDirectUploadBarrier(VkCommandBuffer commands, bool discard);
@@ -521,12 +528,13 @@ private:
     VkDeviceSize memoryBytes = 0;
     VkImageView view = VK_NULL_HANDLE;
     std::uint32_t defaultMip = 0;
-    std::map<std::uint32_t, VkImageView> extraViews;
+    std::map<std::pair<std::uint32_t, std::uint32_t>, VkImageView> extraViews;
     std::map<std::uint32_t, VkImageView> firstLayerViews;
-    std::map<std::pair<std::uint32_t, bool>, VkImageView> atomicViews;
-    std::map<std::pair<std::uint32_t, bool>, VkImageView> uintViews;
+    std::map<std::tuple<std::uint32_t, bool, std::uint32_t>, VkImageView> atomicViews;
+    std::map<std::tuple<std::uint32_t, bool, std::uint32_t>, VkImageView> uintViews;
     VkImageView elementView = VK_NULL_HANDLE;
     std::map<std::uint32_t, VkImageView> elementLayerViews;
+    mutable std::map<VkImageView, std::uint32_t> viewLayerCounts;
     std::int8_t singlePassState = -1;
     bool attachable = false;
     std::map<std::tuple<VkFormat, std::uint32_t, std::uint32_t>, VkImageView> attachmentViews;

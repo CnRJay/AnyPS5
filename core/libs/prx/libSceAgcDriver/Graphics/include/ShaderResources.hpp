@@ -42,6 +42,9 @@ bool SampledTexturesShareEntry(std::span<const std::uint32_t> first, std::span<c
 // The cached storage image of a surface (render targets use it as their resident image); brought up
 // to date with guest memory before it is returned.
 std::shared_ptr<StorageTexture> CachedStorageSurface(const Context& context, const GuestTextureResource& resource);
+// The array layers a storage view of a descriptor covers: its own slices when the image it is served
+// from may hold more (SlicesResizable), else 0 for the whole image (StorageTexture::View).
+std::uint32_t StorageViewLayers(const GuestTextureResource& viewed);
 // Whether `image` is still the storage cache's image of its surface (what CachedStorageSurface
 // would return); a true answer counts as a use for the cache's eviction order, as a lookup would.
 bool StorageImageCached(const Context& context, const StorageTexture* image);
@@ -437,6 +440,8 @@ private:
     std::vector<bool> textureBaseLevel;
     std::vector<std::shared_ptr<StorageTexture>> storageTextures;
     std::vector<std::uint32_t> storageMips;
+    // Array layers of the image each element's view covers (0: all, see StorageTexture::View).
+    std::vector<std::uint32_t> storageLayers;
     std::vector<std::uint64_t> storageKeys;
     std::vector<bool> storageFirstLayer;
     std::vector<bool> storageWritten;
