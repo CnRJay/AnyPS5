@@ -1253,10 +1253,21 @@ void storageSliceViewTests(const Device& device, Recorder& recorder) {
     const auto chain = CachedStorageSurface(context, array(3, 0, 3, sliceSide, 2));
     const auto single = CachedStorageSurface(context, array(3, 0, 1));
     Require(chain != single && chain->Descriptor().mipCount == 2 && single->Descriptor().depthOrLastArray == 1 && cached(*chain) && cached(*single), "a view of a mip chain shares an image with a single-level array");
-    Require(StorageViewLayers(array(3, 1, 3, sliceSide, 2)) == LayerRange{}, "a mip chain's storage view is limited to slices");
+    Require(StorageViewLayers(array(3, 1, 3, sliceSide, 2)) == LayerRange{1, 3}, "the layers a mip chain's storage view covers are not the descriptor's slices");
     Require(!Texture::CanCopyFrom(*chain, array(3, 0, 1)), "a single-level view is served from a mip chain's image by slices");
+    Require(Texture::CanCopyFrom(*chain, array(3, 1, 2, sliceSide, 2)), "a sampled view of a mip chain's slices cannot be served from the chain's image");
+    for (const auto& [first, last] : std::vector<std::pair<std::uint32_t, std::uint32_t>>{{1, 1}, {0, 2}, {3, 3}}) {
+        Require(CachedStorageSurface(context, array(3, first, last, sliceSide, 2)) == chain && cached(*chain), "the mip chain view of slices " + std::to_string(first) + " through " + std::to_string(last) + " did not resolve to the chain's image");
+    }
     const auto grown = CachedStorageSurface(context, array(3, 2, 2));
     Require(grown != single && grown->Descriptor().depthOrLastArray == 2 && !cached(*single) && cached(*chain), "a larger single-level view did not replace only the single-level image");
+
+    // A mip chain's slices are its whole chain apart: a view of more slices replaces the smaller image.
+    Require(DescribeSurface(array(4, 0, 1, sliceSide, 2)).layerBytes == DescribeSurface(array(4, 0, 3, sliceSide, 2)).layerBytes, "a mip chain's slice stride depends on its slice count");
+    const auto chainSmall = CachedStorageSurface(context, array(4, 0, 1, sliceSide, 2));
+    const auto chainLarge = CachedStorageSurface(context, array(4, 0, 3, sliceSide, 2));
+    Require(chainLarge != chainSmall && chainLarge->Descriptor().depthOrLastArray == 3 && chainLarge->Descriptor().mipCount == 2 && !cached(*chainSmall) && cached(*chainLarge), "a larger view of a mip chain did not replace the smaller chain's image");
+    Require(CachedStorageSurface(context, array(4, 1, 1, sliceSide, 2)) == chainLarge, "a single slice of a mip chain did not resolve to the largest chain image");
 
     ClearCachedTextures(context.device);
     recorder.Submit();

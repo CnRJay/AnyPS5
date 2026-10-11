@@ -840,7 +840,7 @@ StorageSurfaceChoice StorageSurface(const Context& context, const GuestTextureRe
     } else {
         surface.mipCount = viewed.mipCount;
     }
-    if (resizable && surface.mipCount == 1) {
+    if (resizable && surface.mipCount == viewed.mipCount) {
         auto shape = surface;
         shape.depthOrLastArray = 0;
         shape.baseArray = 0;
