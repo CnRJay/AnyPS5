@@ -1563,6 +1563,13 @@ struct SaveDataBackup {
     std::uint8_t reserved[32];
 };
 
+struct SaveDataConvert {
+    std::int32_t user_id;
+    std::int32_t pad;
+    const SceSaveDataDirName* dir_name;
+    std::uint8_t unknown[48];
+};
+
 struct AppContentInitParam { char reserved[32]; };
 
 struct AppContentBootParam {

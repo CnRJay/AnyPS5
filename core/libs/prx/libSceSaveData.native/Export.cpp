@@ -740,9 +740,28 @@ int APS5_VABI sceSaveDataDirNameSearchPs4(const SaveDataDirNameSearchCond* cond,
     return rc;
 }
 
-int APS5_VABI sceSaveDataConvert() {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+static int convert(const SaveDataConvert* param) {
+    if (param == nullptr || param->dir_name == nullptr) {
+        throw std::runtime_error("sceSaveDataConvert: null argument");
+    }
+    const auto* nameEnd = static_cast<const char*>(std::memchr(param->dir_name->data, '\0', sizeof(param->dir_name->data)));
+    if (nameEnd == nullptr) {
+        return SAVE_DATA_ERROR_PARAMETER;
+    }
+    const std::string dirName(param->dir_name->data, static_cast<std::size_t>(nameEnd - param->dir_name->data));
+    if (dirName.empty() || dirName == "." || dirName == ".." || dirName.find_first_of("/\\:") != std::string::npos) {
+        return SAVE_DATA_ERROR_PARAMETER;
+    }
+    if (!std::filesystem::is_directory(save_root() + "/" + dirName)) {
+        return SAVE_DATA_ERROR_NOT_FOUND;
+    }
+    return SAVE_DATA_OK;
+}
+
+int APS5_VABI sceSaveDataConvert(const SaveDataConvert* param) {
+    const int rc = convert(param);
+    SAVEDATA_TRACE("convert user=%d dir=%s -> 0x%08x", param != nullptr ? param->user_id : -1, param != nullptr && param->dir_name != nullptr ? param->dir_name->data : "(null)", static_cast<unsigned>(rc));
+    return rc;
 }
 
 int APS5_VABI sceSaveDataGetConvertProgress() {
