@@ -12,6 +12,7 @@
 #include "spirv-tools/libspirv.hpp"
 #endif
 
+#include <algorithm>
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -117,6 +118,9 @@ bool Replay(const char* path) {
         if (g_maintenance8) request.request.target.nonConstantImageOffsets = true;
         const auto result = ShaderRecompiler::Recompile(request.request);
         std::printf("  recompiled: %zu SPIR-V words\n", result.spirv.size());
+        // Binding the BDA pagetable makes the driver treat the dispatch as address-based.
+        const bool addressBased = std::any_of(result.bindings.begin(), result.bindings.end(), [](const auto& binding) { return binding.role == ShaderRecompiler::DescriptorRole::BdaPagetable; });
+        if (addressBased) std::printf("  address-based: binds the BDA pagetable\n");
         if (g_spirv) {
             std::string name(path);
             name = name.substr(name.find_last_of("/\\") + 1) + ".spv";
