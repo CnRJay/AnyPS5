@@ -222,6 +222,17 @@ public:
         *count = 0;
         const auto end = address + bytes;
         if (clear && !collectable(address, end)) return false;
+        // Pages found clean by this walk join one pending run, remembered when the run breaks or the
+        // walk ends (one cleanRanges update per run, not an erase and insert per page). The run
+        // covers only pages behind the cursor, so the clean-range lookups ahead see the same map.
+        std::uintptr_t cleanStart = 0;
+        std::uintptr_t cleanEnd = 0;
+        const auto flushClean = [&] {
+            if (cleanEnd > cleanStart) rememberClean(cleanStart, cleanEnd);
+            cleanStart = cleanEnd = 0;
+        };
+        // Consecutive pages are usually consecutive views: the next entry is tried before a lookup.
+        auto hint = views.end();
         for (auto cursor = address; cursor < end;) {
             const auto nextClean = cleanRanges.upper_bound(cursor);
             if (nextClean != cleanRanges.begin()) {
@@ -232,16 +243,26 @@ public:
                 }
             }
             const auto base = cursor & ~(pageBytes - 1);
-            const auto found = views.find(base);
+            auto found = views.end();
+            if (hint != views.end()) {
+                if (hint->first == base) found = hint;
+                else if (const auto next = std::next(hint); next != views.end() && next->first == base) found = next;
+            }
+            if (found == views.end()) found = views.find(base);
+            hint = found;
             if (found != views.end()) {
                 auto& view = found->second;
                 const auto stop = std::min(end, base + pageBytes);
-                if (view.protection == PAGE_NOACCESS) return false;
+                if (view.protection == PAGE_NOACCESS) {
+                    flushClean();
+                    return false;
+                }
                 const bool pinned = view.page->pins != 0;
                 if (pinned || view.seen != view.page->generation) {
                     const auto needed = (stop - cursor + 4095) / 4096;
                     if (needed > capacity - *count) {
                         for (auto at = cursor; *count < capacity; at += 4096) pages[(*count)++] = reinterpret_cast<void*>(at);
+                        flushClean();
                         return true;
                     }
                     for (auto at = cursor; at < stop; at += 4096) pages[(*count)++] = reinterpret_cast<void*>(at);
@@ -256,10 +277,15 @@ public:
                         other.armed = true;
                     }
                     view.seen = view.page->generation;
-                    rememberClean(base, base + pageBytes);
+                    if (cleanEnd != base) {
+                        flushClean();
+                        cleanStart = base;
+                    }
+                    cleanEnd = base + pageBytes;
                 }
                 cursor = stop;
             } else {
+                flushClean();
                 const auto memory = query(cursor);
                 if (memory.State != MEM_COMMIT || memory.Type != MEM_PRIVATE) return false;
                 const auto stop = std::min(end, reinterpret_cast<std::uintptr_t>(memory.BaseAddress) + memory.RegionSize);
@@ -272,14 +298,30 @@ public:
                 cursor = stop;
             }
         }
+        flushClean();
         return true;
     }
 
 private:
     bool collectable(std::uintptr_t address, std::uintptr_t end) {
+        auto hint = views.end();
         for (auto cursor = address; cursor < end;) {
+            // A clean range holds only views that were collectable when remembered; a protection
+            // change, commit or reset of any of them forgets it (invalidate, reset).
+            if (const auto nextClean = cleanRanges.upper_bound(cursor); nextClean != cleanRanges.begin()) {
+                if (const auto clean = std::prev(nextClean); cursor < clean->second) {
+                    cursor = std::min(end, clean->second);
+                    continue;
+                }
+            }
             const auto base = cursor & ~(pageBytes - 1);
-            if (const auto found = views.find(base); found != views.end()) {
+            auto found = views.end();
+            if (hint != views.end()) {
+                if (const auto next = std::next(hint); next != views.end() && next->first == base) found = next;
+            }
+            if (found == views.end()) found = views.find(base);
+            hint = found;
+            if (found != views.end()) {
                 if (found->second.protection == PAGE_NOACCESS) return false;
                 cursor = std::min(end, base + pageBytes);
                 continue;
