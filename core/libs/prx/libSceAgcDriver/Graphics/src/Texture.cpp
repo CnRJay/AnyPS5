@@ -848,9 +848,14 @@ bool IntegerFormat(VkFormat format) {
     }
 }
 
-// The clear value a DCC clear code stands for, for non-integer formats.
+// The clear value a DCC clear code stands for: every code for non-integer formats; for integer
+// formats only 0000, whose texels are zero bits in any format (as FillDccClear writes them).
 bool ClearColorFor(VkFormat format, DccKeys keys, VkClearColorValue& clear) {
-    if (IntegerFormat(format)) return false;
+    if (IntegerFormat(format)) {
+        if (keys != DccKeys::Clear0000) return false;
+        clear.uint32[0] = clear.uint32[1] = clear.uint32[2] = clear.uint32[3] = 0u;
+        return true;
+    }
     switch (keys) {
         case DccKeys::Clear0000: clear.float32[0] = clear.float32[1] = clear.float32[2] = clear.float32[3] = 0.0f; return true;
         case DccKeys::Clear0001: clear.float32[0] = clear.float32[1] = clear.float32[2] = 0.0f; clear.float32[3] = 1.0f; return true;
