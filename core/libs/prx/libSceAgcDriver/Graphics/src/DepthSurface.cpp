@@ -6,6 +6,7 @@
 #include "RdnaDecoder/include/RdnaDecoder/RdnaDescriptorFormat.hpp"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <map>
 #include <memory>
@@ -335,7 +336,9 @@ void NoteDepthStorage(const Context& context, const std::shared_ptr<StorageTextu
     const auto expected = !depthPlane ? VK_FORMAT_R8_UINT : d16 ? VK_FORMAT_R16_UNORM : VK_FORMAT_R32_SFLOAT;
     const auto planeBytes = !depthPlane ? 1u : d16 ? 2u : 4u;
     if (mip == 0 && resource.baseArray == 0 && (resource.width != target.extent.width || resource.height != target.extent.height || BytesPerElement(resource.format) != planeBytes || format != expected || resource.dimension != TextureDimension::k2D)) {
-        std::fprintf(stderr, "[gpu] depth surface 0x%llx (%ux%u) reused as a %ux%u storage image of vk format %d: the depth surface is forgotten\n", static_cast<unsigned long long>(target.address), target.extent.width, target.extent.height, resource.width, resource.height, static_cast<int>(format));
+        // A title reusing the memory every frame would print this per frame (unbuffered stderr).
+        static std::atomic<int> reports{0};
+        if (reports.fetch_add(1, std::memory_order_relaxed) < 16) std::fprintf(stderr, "[gpu] depth surface 0x%llx (%ux%u) reused as a %ux%u storage image of vk format %d: the depth surface is forgotten\n", static_cast<unsigned long long>(target.address), target.extent.width, target.extent.height, resource.width, resource.height, static_cast<int>(format));
         surfaces().erase(std::next(found).base());
         return;
     }
